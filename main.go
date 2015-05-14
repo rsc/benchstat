@@ -129,7 +129,11 @@ func main() {
 
 			scaler := old.Scaler()
 			row := []string{old.Name, old.Time(scaler), new.Time(scaler), "~   "}
-			if err != nil {
+			if err == stats.ErrZeroVariance {
+				row[3] = "zero variance"
+			} else if err == stats.ErrSampleSize {
+				row[3] = "too few samples"
+			} else if err != nil {
 				row[3] = fmt.Sprintf("(%s)", err)
 			} else if significant {
 				row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
