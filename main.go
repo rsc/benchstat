@@ -6,7 +6,7 @@
 //
 // Usage:
 //
-//	benchstat old.txt [new.txt]
+//	benchstat old.txt [new.txt] [more.txt ...]
 //
 // Each input file should contain the concatenated output of a number
 // of runs of ``go test -bench.'' For each different benchmark listed in an input file,
@@ -24,6 +24,10 @@
 // of the difference. If the t-test indicates that the measured difference is
 // not statistically significant (defined as p > 0.05), benchstat replaces
 // the percent change with a single ~.
+//
+// If invoked on more than two input files, benchstat prints the per-benchmark
+// statistics for all the files, showing one column of statistics for each file,
+// with no column for percent change or statistical significance.
 //
 // Example
 //
@@ -79,6 +83,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -92,7 +97,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: benchstat old.txt [new.txt]\n")
+	fmt.Fprintf(os.Stderr, "usage: benchstat old.txt [new.txt] [more.txt ...]\n")
 	os.Exit(2)
 }
 
@@ -101,20 +106,21 @@ func main() {
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
-	if flag.NArg() < 1 || flag.NArg() > 2 {
+	if flag.NArg() < 1 {
 		flag.Usage()
 	}
 
 	before := readFile(flag.Arg(0))
 	var out [][]string
-	if flag.NArg() == 1 {
+	switch flag.NArg() {
+	case 1:
 		out = append(out, []string{"name", "mean"})
 		for _, old := range before.Benchmarks {
 			out = append(out, []string{old.Name, old.Time(old.Scaler())})
 		}
-	} else {
+	case 2:
 		after := readFile(flag.Arg(1))
-		out = append(out, []string{"name", "old mean            ", "new mean            ", "delta"})
+		out = append(out, []string{"name", "old mean", "new mean", "delta"})
 		for _, old := range before.Benchmarks {
 			new := after.ByName[old.Name]
 			if new == nil {
@@ -143,9 +149,50 @@ func main() {
 			}
 			out = append(out, row)
 		}
+	case 3:
+		groups := []*Group{before}
+		hdr := []string{"benchmark", before.File}
+		for _, file := range flag.Args()[1:] {
+			group := readFile(file)
+			groups = append(groups, group)
+			hdr = append(hdr, group.File)
+		}
+		out = append(out, hdr)
+
+		done := map[string]bool{}
+		for _, group := range groups {
+			for _, bench := range group.Benchmarks {
+				name := bench.Name
+				if done[name] {
+					continue
+				}
+				done[name] = true
+				row := []string{name}
+				scaler := bench.Scaler()
+				for _, group := range groups {
+					b := group.ByName[name]
+					if b == nil {
+						row = append(row, "")
+						continue
+					}
+					row = append(row, b.Time(scaler))
+				}
+				for row[len(row)-1] == "" {
+					row = row[:len(row)-1]
+				}
+				out = append(out, row)
+			}
+		}
 	}
 
-	max := []int{0, 0, 0, 0}
+	numColumn := 0
+	for _, row := range out {
+		if numColumn < len(row) {
+			numColumn = len(row)
+		}
+	}
+
+	max := make([]int, numColumn)
 	for _, row := range out {
 		for i, s := range row {
 			n := utf8.RuneCountInString(s)
@@ -155,19 +202,35 @@ func main() {
 		}
 	}
 
-	if flag.NArg() == 1 {
-		row := out[0]
-		fmt.Printf("%-*s  %s\n", max[0], row[0], row[1])
-		for _, row := range out[1:] {
-			fmt.Printf("%-*s  %*s\n", max[0], row[0], max[1], row[1])
-		}
-	} else {
-		row := out[0]
-		fmt.Printf("%-*s  %*s  %*s  %s\n", max[0], row[0], max[1], row[1], max[2], row[2], row[3])
-		for _, row := range out[1:] {
-			fmt.Printf("%-*s  %*s  %*s  %*s\n", max[0], row[0], max[1], row[1], max[2], row[2], max[3], row[3])
+	var buf bytes.Buffer
+
+	// headings
+	row := out[0]
+	for i, s := range row {
+		switch i {
+		case 0:
+			fmt.Fprintf(&buf, "%-*s", max[i], s)
+		default:
+			fmt.Fprintf(&buf, "  %-*s", max[i], s)
+		case len(row) - 1:
+			fmt.Fprintf(&buf, "  %s\n", s)
 		}
 	}
+
+	// data
+	for _, row := range out[1:] {
+		for i, s := range row {
+			switch i {
+			case 0:
+				fmt.Fprintf(&buf, "%-*s", max[i], s)
+			default:
+				fmt.Fprintf(&buf, "  %*s", max[i], s)
+			}
+		}
+		fmt.Fprintf(&buf, "\n")
+	}
+
+	os.Stdout.Write(buf.Bytes())
 }
 
 func (b *Benchmark) Scaler() func(*Benchmark) string {
@@ -210,6 +273,7 @@ func (b *Benchmark) Time(scaler func(*Benchmark) string) string {
 
 // A Group is a collection of benchmark results for a specific version of the code.
 type Group struct {
+	File       string
 	Benchmarks []*Benchmark
 	ByName     map[string]*Benchmark
 }
@@ -233,7 +297,7 @@ type Run struct {
 
 // readFile reads a benchmark group from a file.
 func readFile(file string) *Group {
-	g := &Group{ByName: make(map[string]*Benchmark)}
+	g := &Group{File: file, ByName: make(map[string]*Benchmark)}
 
 	text, err := ioutil.ReadFile(file)
 	if err != nil {
