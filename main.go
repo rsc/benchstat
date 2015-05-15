@@ -149,7 +149,7 @@ func main() {
 			}
 			out = append(out, row)
 		}
-	case 3:
+	default:
 		groups := []*Group{before}
 		hdr := []string{"benchmark", before.File}
 		for _, file := range flag.Args()[1:] {
