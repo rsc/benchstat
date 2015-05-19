@@ -95,12 +95,12 @@ func betacf(x, a, b float64) float64 {
 	panic("betainc: a or b too big; failed to converge")
 }
 
-func (t TDist) At(x float64) float64 {
+func (t TDist) PDF(x float64) float64 {
 	return math.Exp(lgamma((t.V+1)/2)-lgamma(t.V/2)) /
 		math.Sqrt(t.V*math.Pi) * math.Pow(1+(x*x)/t.V, -(t.V+1)/2)
 }
 
-func (t TDist) AtEach(xs []float64) []float64 {
+func (t TDist) PDFEach(xs []float64) []float64 {
 	res := make([]float64, len(xs))
 	factor := math.Exp(lgamma((t.V+1)/2)-lgamma(t.V/2)) /
 		math.Sqrt(t.V*math.Pi)
@@ -110,38 +110,22 @@ func (t TDist) AtEach(xs []float64) []float64 {
 	return res
 }
 
-func (t TDist) Bounds() (float64, float64) {
-	return -4, 4
-}
-
-func (t TDist) Integrate() Func {
-	return tCDF{t.V}
-}
-
-type tCDF struct {
-	V float64
-}
-
-func (ti tCDF) At(x float64) float64 {
+func (t TDist) CDF(x float64) float64 {
 	if x == 0 {
 		return 0.5
 	} else if x > 0 {
-		return 1 - 0.5*betainc(ti.V/(ti.V+x*x), ti.V/2, 0.5)
+		return 1 - 0.5*betainc(t.V/(t.V+x*x), t.V/2, 0.5)
 	} else if x < 0 {
-		return 1 - ti.At(-x)
+		return 1 - t.CDF(-x)
 	} else {
 		return math.NaN()
 	}
 }
 
-func (ti tCDF) AtEach(xs []float64) []float64 {
-	return atEach(ti, xs)
+func (t TDist) CDFEach(xs []float64) []float64 {
+	return atEach(t.CDF, xs)
 }
 
-func (ti tCDF) Bounds() (float64, float64) {
+func (t TDist) Bounds() (float64, float64) {
 	return -4, 4
-}
-
-func (ti tCDF) Integrate() Func {
-	return nil
 }

@@ -127,7 +127,7 @@ func main() {
 				continue
 			}
 
-			ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes})
+			ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
 			significant := false
 			if err == nil {
 				significant = ttest.P <= 0.05

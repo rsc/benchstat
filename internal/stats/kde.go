@@ -173,7 +173,7 @@ const (
 
 // FromSample returns the probability density function of the kernel
 // density estimate for s.
-func (k KDE) FromSample(s Sample) Func {
+func (k KDE) FromSample(s Sample) Dist {
 	if s.Weights != nil && len(s.Xs) != len(s.Weights) {
 		panic("len(xs) != len(weights)")
 	}
@@ -186,7 +186,7 @@ func (k KDE) FromSample(s Sample) Func {
 	h := bw.Bandwidth(s)
 
 	// Construct kernel
-	kernel := Func(nil)
+	kernel := Dist(nil)
 	switch k.Kernel {
 	default:
 		panic(fmt.Sprint("unknown kernel", k))
@@ -206,8 +206,14 @@ func (k KDE) FromSample(s Sample) Func {
 		bm = boundaryNone
 	}
 
-	return &kdePDF{kernel, s.Xs, s.Weights, bm, min, max}
+	return &kdeDist{kernel, s.Xs, s.Weights, bm, min, max}
 }
+
+// TODO: Instead of FromHistogram, make histogram able to create a
+// weighted Sample and have a method that takes a sample and its
+// statistics interface separately (or have the caller produce their
+// own FixedBandwidth and expose the bandwidth estimators in terms of
+// the statistics interfaces they each require).
 
 // FromHistogram returns the probability density function of the kernel
 // density estimate for hist.
@@ -223,7 +229,7 @@ func (k KDE) FromSample(s Sample) Func {
 //
 // Note that the returned KDE may use the data from hist directly, so
 // hist must not be modified until the caller is done with the KDE.
-func (k KDE) FromHistogram(hist Histogram, ss *StreamStats) Func {
+func (k KDE) FromHistogram(hist Histogram, ss *StreamStats) Dist {
 	// Construct weighted samples from hist
 	_, counts, _ := hist.Counts()
 	xs, weights := make([]float64, len(counts)), make([]float64, len(counts))
@@ -247,8 +253,8 @@ func (k KDE) FromHistogram(hist Histogram, ss *StreamStats) Func {
 	// histogram?
 }
 
-type kdePDF struct {
-	kernel      Func
+type kdeDist struct {
+	kernel      Dist
 	xs, weights []float64
 	bm          BoundaryMethod
 	min, max    float64 // Support bounds
@@ -257,7 +263,7 @@ type kdePDF struct {
 // normalizedXs returns x - kde.xs.  Evaluating kernels shifted by
 // kde.xs all at x is equivalent to evaluating one unshifted kernel at
 // x - kde.xs.
-func (kde *kdePDF) normalizedXs(x float64) []float64 {
+func (kde *kdeDist) normalizedXs(x float64) []float64 {
 	txs := make([]float64, len(kde.xs))
 	for i, xi := range kde.xs {
 		txs[i] = x - xi
@@ -265,7 +271,7 @@ func (kde *kdePDF) normalizedXs(x float64) []float64 {
 	return txs
 }
 
-func (kde *kdePDF) At(x float64) float64 {
+func (kde *kdeDist) PDF(x float64) float64 {
 	// Apply boundary
 	if x < kde.min || x >= kde.max {
 		return 0
@@ -273,7 +279,7 @@ func (kde *kdePDF) At(x float64) float64 {
 
 	y := func(x float64) float64 {
 		// Shift kernel to each of kde.xs and evaluate at x
-		ys := kde.kernel.AtEach(kde.normalizedXs(x))
+		ys := kde.kernel.PDFEach(kde.normalizedXs(x))
 
 		// Kernel samples are weighted according to the weights of xs
 		wys := Sample{Xs: ys, Weights: kde.weights}
@@ -304,23 +310,11 @@ func (kde *kdePDF) At(x float64) float64 {
 	}
 }
 
-func (kde *kdePDF) AtEach(xs []float64) []float64 {
-	return atEach(kde, xs)
+func (kde *kdeDist) PDFEach(xs []float64) []float64 {
+	return atEach(kde.PDF, xs)
 }
 
-func (kde *kdePDF) Bounds() (low float64, high float64) {
-	return kde.Integrate().Bounds()
-}
-
-func (kde *kdePDF) Integrate() Func {
-	return &kdeCDF{*kde}
-}
-
-type kdeCDF struct {
-	kdePDF
-}
-
-func (cdf *kdeCDF) At(x float64) float64 {
+func (cdf *kdeDist) CDF(x float64) float64 {
 	// Apply boundary
 	if x < cdf.min {
 		return 0
@@ -330,7 +324,7 @@ func (cdf *kdeCDF) At(x float64) float64 {
 
 	y := func(x float64) float64 {
 		// Shift kernel integral to each of cdf.xs and evaluate at x
-		ys := cdf.kernel.Integrate().AtEach(cdf.normalizedXs(x))
+		ys := cdf.kernel.CDFEach(cdf.normalizedXs(x))
 
 		// Kernel samples are weighted according to the weights of xs
 		wys := Sample{Xs: ys, Weights: cdf.weights}
@@ -361,11 +355,19 @@ func (cdf *kdeCDF) At(x float64) float64 {
 	}
 }
 
-func (cdf *kdeCDF) AtEach(xs []float64) []float64 {
-	return atEach(cdf, xs)
+func (cdf *kdeDist) CDFEach(xs []float64) []float64 {
+	return atEach(cdf.CDF, xs)
 }
 
-func (cdf *kdeCDF) Bounds() (low float64, high float64) {
+func (kde *kdeDist) InvCDF(x float64) float64 {
+	panic("not implemented")
+}
+
+func (kde *kdeDist) InvCDFEach(cs []float64) []float64 {
+	panic("not implemented")
+}
+
+func (cdf *kdeDist) Bounds() (low float64, high float64) {
 	// TODO(austin) If this KDE came from a histogram, we'd better
 	// not sample at a significantly higher rate than the
 	// histogram.  Maybe we want to just return the bounds of the
@@ -392,16 +394,16 @@ func (cdf *kdeCDF) Bounds() (low float64, high float64) {
 		highY     = 0.995
 		tolerance = 0.001
 	)
-	for cdf.At(lowX) > lowY {
+	for cdf.CDF(lowX) > lowY {
 		lowX -= highX - lowX
 	}
-	for cdf.At(highX) < highY {
+	for cdf.CDF(highX) < highY {
 		highX += highX - lowX
 	}
 	// Explicitly accept discontinuities, since we may be using a
 	// discontiguous kernel.
-	low, _ = bisect(func(x float64) float64 { return cdf.At(x) - lowY }, lowX, highX, tolerance)
-	high, _ = bisect(func(x float64) float64 { return cdf.At(x) - highY }, lowX, highX, tolerance)
+	low, _ = bisect(func(x float64) float64 { return cdf.CDF(x) - lowY }, lowX, highX, tolerance)
+	high, _ = bisect(func(x float64) float64 { return cdf.CDF(x) - highY }, lowX, highX, tolerance)
 
 	// Expand width by 20% to give some margins
 	width := high - low
@@ -411,8 +413,4 @@ func (cdf *kdeCDF) Bounds() (low float64, high float64) {
 	low, high = math.Max(low, cdf.min), math.Min(high, cdf.max)
 
 	return
-}
-
-func (cdf *kdeCDF) Integrate() Func {
-	return nil
 }

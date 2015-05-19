@@ -18,12 +18,12 @@ var StdNormal = Normal{0, 1}
 // 1/sqrt(2 * pi)
 const invSqrt2Pi = 0.39894228040143267793994605993438186847585863116493465766592583
 
-func (n Normal) At(x float64) float64 {
+func (n Normal) PDF(x float64) float64 {
 	z := x - n.Mu
 	return math.Exp(-z*z/(2*n.Sigma*n.Sigma)) * invSqrt2Pi / n.Sigma
 }
 
-func (n Normal) AtEach(xs []float64) []float64 {
+func (n Normal) PDFEach(xs []float64) []float64 {
 	res := make([]float64, len(xs))
 	if n.Mu == 0 && n.Sigma == 1 {
 		// Standard normal fast path
@@ -41,25 +41,11 @@ func (n Normal) AtEach(xs []float64) []float64 {
 	return res
 }
 
-func (n Normal) Bounds() (float64, float64) {
-	const stddevs = 3
-	return n.Mu - stddevs*n.Sigma, n.Mu + stddevs*n.Sigma
-}
-
-func (n Normal) Integrate() Func {
-	return normalIntegral(n)
-}
-
-type normalIntegral Normal
-
-// StdNormalIntegral is the CDF of the standard normal distribution.
-var StdNormalIntegral = normalIntegral(StdNormal)
-
-func (n normalIntegral) At(x float64) float64 {
+func (n Normal) CDF(x float64) float64 {
 	return (1 + math.Erf((x-n.Mu)/(n.Sigma*math.Sqrt2))) / 2
 }
 
-func (n normalIntegral) AtEach(xs []float64) []float64 {
+func (n Normal) CDFEach(xs []float64) []float64 {
 	res := make([]float64, len(xs))
 	a := 1 / (n.Sigma * math.Sqrt2)
 	for i, x := range xs {
@@ -68,10 +54,15 @@ func (n normalIntegral) AtEach(xs []float64) []float64 {
 	return res
 }
 
-func (n normalIntegral) Bounds() (float64, float64) {
-	return Normal(n).Bounds()
+func (n Normal) InvCDF(y float64) float64 {
+	panic("not implemented")
 }
 
-func (n normalIntegral) Integrate() Func {
-	return nil
+func (n Normal) InvCDFEach(ys []float64) []float64 {
+	panic("not implemented")
+}
+
+func (n Normal) Bounds() (float64, float64) {
+	const stddevs = 3
+	return n.Mu - stddevs*n.Sigma, n.Mu + stddevs*n.Sigma
 }

@@ -38,3 +38,18 @@ func testFunc(t *testing.T, name string, f func(float64) float64, vals map[float
 		}
 	}
 }
+
+func testDiscreteCDF(t *testing.T, name string, dist DiscreteDist) {
+	// Build the expected CDF out of the PMF.
+	l, h := dist.Bounds()
+	s := dist.Step()
+	want := map[float64]float64{l - 0.1: 0, h: 1}
+	sum := 0.0
+	for x := l; x < h; x += s {
+		sum += dist.PMF(x)
+		want[x] = sum
+		want[x+s/2] = sum
+	}
+
+	testFunc(t, name, dist.CDF, want)
+}

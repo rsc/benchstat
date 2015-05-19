@@ -4,3 +4,15 @@
 
 // stats is a grab bag of statistical routines.
 package stats
+
+import (
+	"errors"
+	"math"
+)
+
+var inf = math.Inf(1)
+var nan = math.NaN()
+
+var (
+	ErrSamplesEqual = errors.New("all samples are equal")
+)

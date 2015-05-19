@@ -1,3 +1,7 @@
+// Copyright 2015 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package stats
 
 import "testing"
@@ -21,7 +25,7 @@ func TestBetainc(t *testing.T) {
 }
 
 func TestT(t *testing.T) {
-	testFunc(t, "PDF(%v|v=1)", TDist{1}.At, map[float64]float64{
+	testFunc(t, "PDF(%v|v=1)", TDist{1}.PDF, map[float64]float64{
 		-10: 0.0031515830315226806,
 		-9:  0.0038818278802901312,
 		-8:  0.0048970751720583188,
@@ -42,7 +46,7 @@ func TestT(t *testing.T) {
 		7:   0.0063661977236758151,
 		8:   0.0048970751720583188,
 		9:   0.0038818278802901312})
-	testFunc(t, "PDF(%v|v=5)", TDist{5}.At, map[float64]float64{
+	testFunc(t, "PDF(%v|v=5)", TDist{5}.PDF, map[float64]float64{
 		-10: 4.0989816415343313e-05,
 		-9:  7.4601664362590413e-05,
 		-8:  0.00014444303269563934,
@@ -64,7 +68,7 @@ func TestT(t *testing.T) {
 		8:   0.00014444303269563934,
 		9:   7.4601664362590413e-05})
 
-	testFunc(t, "CDF(%v|v=1)", TDist{1}.Integrate().At, map[float64]float64{
+	testFunc(t, "CDF(%v|v=1)", TDist{1}.CDF, map[float64]float64{
 		-10: 0.03172551743055356,
 		-9:  0.035223287477277272,
 		-8:  0.039583424160565539,
@@ -85,7 +89,7 @@ func TestT(t *testing.T) {
 		7:   0.95483276469913347,
 		8:   0.96041657583943452,
 		9:   0.96477671252272279})
-	testFunc(t, "CDF(%v|v=5)", TDist{5}.Integrate().At, map[float64]float64{
+	testFunc(t, "CDF(%v|v=5)", TDist{5}.CDF, map[float64]float64{
 		-10: 8.5473787871481787e-05,
 		-9:  0.00014133998712194845,
 		-8:  0.00024645333028622187,

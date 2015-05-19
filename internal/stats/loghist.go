@@ -7,8 +7,6 @@ package stats
 import "math"
 
 // LogHist is a Histogram with logarithmically-spaced bins.
-//
-// LogHist is also a Func.
 type LogHist struct {
 	b         int
 	m         float64
@@ -59,13 +57,9 @@ func (h *LogHist) At(x float64) float64 {
 	return float64(h.bins[bin])
 }
 
-func (h *LogHist) AtEach(xs []float64) []float64 {
-	return atEach(h, xs)
-}
-
 func (h *LogHist) Bounds() (float64, float64) {
 	// XXX Plot will plot this on a linear axis.  Maybe this
-	// should be able to return the natural axis for this Func?
+	// should be able to return the natural axis?
 	// Maybe then we could also give it the bins for the tics.
 	lowbin := 0
 	if h.low == 0 {
@@ -86,40 +80,4 @@ func (h *LogHist) Bounds() (float64, float64) {
 		}
 	}
 	return h.BinToValue(float64(lowbin)), h.BinToValue(float64(highbin))
-}
-
-func (h *LogHist) Integrate() Func {
-	psums, cum := make([]uint, len(h.bins)), uint(0)
-	for bin, count := range h.bins {
-		cum += count
-		psums[bin] = cum
-	}
-	return &logHistIntegral{h, psums}
-}
-
-type logHistIntegral struct {
-	*LogHist
-	psums []uint
-}
-
-func (h *logHistIntegral) At(x float64) float64 {
-	bin := h.bin(x)
-	if bin < 0 {
-		return float64(h.low)
-	} else if bin >= len(h.bins) {
-		bin = len(h.bins) - 1
-	}
-	return float64(h.psums[bin])
-}
-
-func (h *logHistIntegral) AtEach(xs []float64) []float64 {
-	return atEach(h, xs)
-}
-
-func (h *logHistIntegral) Bounds() (float64, float64) {
-	return h.LogHist.Bounds()
-}
-
-func (h *logHistIntegral) Integral() Func {
-	return nil
 }

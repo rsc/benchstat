@@ -6,17 +6,67 @@ package stats
 
 // Miscellaneous helper algorithms
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // sign returns the sign of x: -1 if x < 0, 0 if x == 0, 1 if x > 0.
-func sign(x float64) int {
+// If x is NaN, it returns NaN.
+func sign(x float64) float64 {
 	if x == 0 {
 		return 0
 	} else if x < 0 {
 		return -1
-	} else {
+	} else if x > 0 {
 		return 1
 	}
+	return nan
+}
+
+func maxint(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minint(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func sumint(xs []int) int {
+	sum := 0
+	for _, x := range xs {
+		sum += x
+	}
+	return sum
+}
+
+// lchoose returns math.Log(choose(n, k)).
+func lchoose(n, k int) float64 {
+	a, _ := math.Lgamma(float64(n + 1))
+	b, _ := math.Lgamma(float64(k + 1))
+	c, _ := math.Lgamma(float64(n - k + 1))
+	return a - b - c
+}
+
+// choose returns the binomial coefficient of n and k.
+func choose(n, k int) int {
+	return int(math.Exp(lchoose(n, k)) + 0.5)
+}
+
+// atEach returns f(x) for each x in xs.
+func atEach(f func(float64) float64, xs []float64) []float64 {
+	// TODO(austin) Parallelize
+	res := make([]float64, len(xs))
+	for i, x := range xs {
+		res[i] = f(x)
+	}
+	return res
 }
 
 // bisect returns an x in [low, high] such that |f(x)| <= tolerance
