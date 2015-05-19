@@ -97,16 +97,34 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: benchstat old.txt [new.txt] [more.txt ...]\n")
+	fmt.Fprintf(os.Stderr, "usage: benchstat [flags] old.txt [new.txt] [more.txt ...]\n")
+	flag.PrintDefaults()
 	os.Exit(2)
 }
 
+type deltaTest int
+
+const (
+	deltaTestNone deltaTest = iota
+	deltaTestTTest
+)
+
+var deltaTestNames = map[string]deltaTest{
+	"none":   deltaTestNone,
+	"ttest":  deltaTestTTest,
+	"t-test": deltaTestTTest,
+	"t":      deltaTestTTest,
+}
+
 func main() {
+	var flagTest = flag.String("delta-test", "ttest", "Use `test` to determine significance of deltas. test must be one of:\n\t  none:  perform no significance test\n\t  ttest: perform a Welch's t-test\n\t")
+
 	log.SetPrefix("benchstats: ")
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
-	if flag.NArg() < 1 {
+	deltaTest, deltaTestOK := deltaTestNames[strings.ToLower(*flagTest)]
+	if flag.NArg() < 1 || !deltaTestOK {
 		flag.Usage()
 	}
 
@@ -127,25 +145,35 @@ func main() {
 				continue
 			}
 
-			ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
-			significant := false
-			if err == nil {
-				significant = ttest.P <= 0.05
+			var pval float64
+			var testerr error
+
+			switch deltaTest {
+			case deltaTestNone:
+				pval = -1
+
+			case deltaTestTTest:
+				ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
+				if err == nil {
+					pval = ttest.P
+				} else {
+					testerr = err
+				}
 			}
 
 			scaler := old.Scaler()
 			row := []string{old.Name, old.Time(scaler), new.Time(scaler), "~   "}
-			if err == stats.ErrZeroVariance {
+			if testerr == stats.ErrZeroVariance {
 				row[3] = "zero variance"
-			} else if err == stats.ErrSampleSize {
+			} else if testerr == stats.ErrSampleSize {
 				row[3] = "too few samples"
-			} else if err != nil {
-				row[3] = fmt.Sprintf("(%s)", err)
-			} else if significant {
+			} else if testerr != nil {
+				row[3] = fmt.Sprintf("(%s)", testerr)
+			} else if pval <= 0.05 {
 				row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
 			}
-			if ttest != nil {
-				row[3] += fmt.Sprintf(" (p=%0.3f)", ttest.P)
+			if testerr == nil && pval != -1 {
+				row[3] += fmt.Sprintf(" (p=%0.3f)", pval)
 			}
 			out = append(out, row)
 		}
