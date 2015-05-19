@@ -106,18 +106,22 @@ type deltaTest int
 
 const (
 	deltaTestNone deltaTest = iota
+	deltaTestUTest
 	deltaTestTTest
 )
 
 var deltaTestNames = map[string]deltaTest{
 	"none":   deltaTestNone,
+	"utest":  deltaTestUTest,
+	"u-test": deltaTestUTest,
+	"u":      deltaTestUTest,
 	"ttest":  deltaTestTTest,
 	"t-test": deltaTestTTest,
 	"t":      deltaTestTTest,
 }
 
 func main() {
-	var flagTest = flag.String("delta-test", "ttest", "Use `test` to determine significance of deltas. test must be one of:\n\t  none:  perform no significance test\n\t  ttest: perform a Welch's t-test\n\t")
+	var flagTest = flag.String("delta-test", "utest", "Use `test` to determine significance of deltas. test must be one of:\n\t  none:  perform no significance test\n\t  utest: perform a Mann-Whitney U-test\n\t  ttest: perform a Welch's t-test\n\t")
 
 	log.SetPrefix("benchstats: ")
 	log.SetFlags(0)
@@ -156,6 +160,14 @@ func main() {
 				ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
 				if err == nil {
 					pval = ttest.P
+				} else {
+					testerr = err
+				}
+
+			case deltaTestUTest:
+				utest, err := stats.MannWhitneyUTest(old.RTimes, new.RTimes, stats.LocationDiffers)
+				if err == nil {
+					pval = utest.P
 				} else {
 					testerr = err
 				}
