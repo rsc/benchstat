@@ -185,7 +185,7 @@ func main() {
 				row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
 			}
 			if testerr == nil && pval != -1 {
-				row[3] += fmt.Sprintf(" (p=%0.3f)", pval)
+				row[3] += fmt.Sprintf(" (p=%0.3f n=%d+%d)", pval, len(old.RTimes), len(new.RTimes))
 			}
 			out = append(out, row)
 		}
