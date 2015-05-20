@@ -19,10 +19,12 @@
 // If invoked on a pair of input files, benchstat adds to the output a column
 // showing the statistics from the second file and a column showing the
 // percent change in mean from the first to the second file.
-// Next to the percent change, benchstat shows the p value from the
-// two-sample Welch t-test, which measures the statistical significance
-// of the difference. If the t-test indicates that the measured difference is
-// not statistically significant (defined as p > 0.05), benchstat replaces
+// Next to the percent change, benchstat shows the p-value and sample
+// sizes from a Mann-Whitney U-test (also known as the Wilcoxon rank
+// sum test) of the two distributions of benchmark times. Small p-values
+// indicate that the two distributions are significantly different.
+// If the U-test indicates that there was no significant change between
+// the two distributions (defined as p > 0.05), benchstat replaces
 // the percent change with a single ~.
 //
 // If invoked on more than two input files, benchstat prints the per-benchmark
@@ -73,8 +75,8 @@
 //
 //	$ benchstat old.txt new.txt
 //	name        old mean              new mean              delta
-//	GobEncode   13.6ms × (1.00,1.01)  11.8ms × (0.99,1.01)  -13.31% (p=0.000)
-//	JSONEncode  32.1ms × (0.99,1.01)  31.8ms × (0.99,1.01)     ~    (p=0.154)
+//	GobEncode   13.6ms × (1.00,1.01)  11.8ms × (0.99,1.01)  -13.31% (p=0.016 n=4+5)
+//	JSONEncode  32.1ms × (0.99,1.01)  31.8ms × (0.99,1.01)     ~    (p=0.286 n=4+5)
 //	$
 //
 // Note that the JSONEncode result is reported as
