@@ -117,7 +117,7 @@ var (
 	flagHTML      = flag.Bool("html", false, "print results as an HTML table")
 )
 
-var deltaTestNames = map[string]func(old, new *Benchmark) (float64, error){
+var deltaTestNames = map[string]func(old, new *Benchstat) (float64, error){
 	"none":   notest,
 	"u":      utest,
 	"u-test": utest,
@@ -138,144 +138,193 @@ func main() {
 	}
 
 	before := readFile(flag.Arg(0))
-	var out [][]string
+	var tables [][][]string
 	switch flag.NArg() {
 	case 1:
-		out = append(out, []string{"name", "time/op"})
-		for _, old := range before.Benchmarks {
-			out = append(out, []string{old.Name, old.Time(old.Scaler())})
+		for _, metric := range before.Metrics() {
+			var table [][]string
+			table = append(table, []string{"name", metric})
+			for _, b := range before.Benchmarks {
+				stat := b.Metric(metric)
+				if stat == nil {
+					continue
+				}
+				table = append(table, []string{b.Name, stat.Format(stat.Scaler())})
+			}
+			tables = append(tables, table)
 		}
+
 	case 2:
 		after := readFile(flag.Arg(1))
-		out = append(out, []string{"name", "old time/op", "new time/op", "delta"})
-		for _, old := range before.Benchmarks {
-			new := after.ByName[old.Name]
-			if new == nil {
-				continue
-			}
+		for _, metric := range before.Metrics() {
+			var table [][]string
+			for _, oldBench := range before.Benchmarks {
+				newBench := after.ByName[oldBench.Name]
+				if newBench == nil {
+					continue
+				}
+				old := oldBench.Metric(metric)
+				new := newBench.Metric(metric)
+				if old == nil || new == nil {
+					continue
+				}
+				if len(table) == 0 {
+					table = append(table, []string{"name", "old " + metric, "new " + metric, "delta"})
+				}
 
-			pval, testerr := deltaTest(old, new)
+				pval, testerr := deltaTest(old, new)
 
-			scaler := old.Scaler()
-			row := []string{old.Name, old.Time(scaler), new.Time(scaler), "~   "}
-			if testerr == stats.ErrZeroVariance {
-				row[3] = "zero variance"
-			} else if testerr == stats.ErrSampleSize {
-				row[3] = "too few samples"
-			} else if testerr != nil {
-				row[3] = fmt.Sprintf("(%s)", testerr)
-			} else if pval <= 0.05 {
-				row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
+				scaler := old.Scaler()
+				row := []string{oldBench.Name, old.Format(scaler), new.Format(scaler), "~   "}
+				if testerr == stats.ErrZeroVariance {
+					row = append(row, "zero variance")
+				} else if testerr == stats.ErrSampleSize {
+					row = append(row, "too few samples")
+				} else if testerr != nil {
+					row = append(row, fmt.Sprintf("(%s)", testerr))
+				} else if pval <= 0.05 {
+					row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
+				}
+				if len(row) == 4 && pval != -1 {
+					row = append(row, fmt.Sprintf("(p=%0.3f n=%d+%d)", pval, len(old.RValues), len(new.RValues)))
+				}
+				table = append(table, row)
 			}
-			if testerr == nil && pval != -1 {
-				row[3] += fmt.Sprintf(" (p=%0.3f n=%d+%d)", pval, len(old.RTimes), len(new.RTimes))
+			if len(table) > 0 {
+				tables = append(tables, table)
 			}
-			out = append(out, row)
 		}
+
 	default:
 		groups := []*Group{before}
-		hdr := []string{"benchmark", before.File}
+		hdr := []string{"name \\ ", before.File}
 		for _, file := range flag.Args()[1:] {
 			group := readFile(file)
 			groups = append(groups, group)
 			hdr = append(hdr, group.File)
 		}
-		out = append(out, hdr)
 
 		done := map[string]bool{}
 		for _, group := range groups {
-			for _, bench := range group.Benchmarks {
-				name := bench.Name
-				if done[name] {
+			for _, metric := range group.Metrics() {
+				if done["metric:"+metric] {
 					continue
 				}
-				done[name] = true
-				row := []string{name}
-				scaler := bench.Scaler()
-				for _, group := range groups {
-					b := group.ByName[name]
-					if b == nil {
-						row = append(row, "")
+				done["metric:"+metric] = true
+
+				var table [][]string
+				thdr := append([]string{}, hdr...)
+				thdr[0] += metric
+				table = append(table, thdr)
+
+				for _, bench := range group.Benchmarks {
+					name := bench.Name
+					if done["bench:"+metric+"/"+name] {
 						continue
 					}
-					row = append(row, b.Time(scaler))
+					done["bench:"+metric+"/"+name] = true
+
+					row := []string{name}
+					var scaler func(*Benchstat) string
+					for _, group := range groups {
+						stat := group.ByName[name].Metric(metric)
+						if stat == nil {
+							row = append(row, "")
+							continue
+						}
+						if scaler == nil {
+							scaler = stat.Scaler()
+						}
+						row = append(row, stat.Format(scaler))
+					}
+					for row[len(row)-1] == "" {
+						row = row[:len(row)-1]
+					}
+					table = append(table, row)
 				}
-				for row[len(row)-1] == "" {
-					row = row[:len(row)-1]
-				}
-				out = append(out, row)
+
+				tables = append(tables, table)
 			}
 		}
 	}
 
 	numColumn := 0
-	for _, row := range out {
-		if numColumn < len(row) {
-			numColumn = len(row)
-		}
-	}
-
-	if *flagHTML {
-		var buf bytes.Buffer
-		fmt.Fprintf(&buf, "<style>.benchstat tbody td:nth-child(1n+2) { text-align: right; padding: 0em 1em; }</style>\n")
-		fmt.Fprintf(&buf, "<table class='benchstat'>\n")
-		printRow := func(row []string, tag string) {
-			fmt.Fprintf(&buf, "<tr>")
-			for _, cell := range row {
-				fmt.Fprintf(&buf, "<%s>%s</%s>", tag, html.EscapeString(cell), tag)
+	for _, table := range tables {
+		for _, row := range table {
+			if numColumn < len(row) {
+				numColumn = len(row)
 			}
-			fmt.Fprintf(&buf, "\n")
 		}
-		printRow(out[0], "th")
-		for _, row := range out[1:] {
-			printRow(row, "td")
-		}
-		fmt.Fprintf(&buf, "</table>\n")
-		os.Stdout.Write(buf.Bytes())
-		return
 	}
 
 	max := make([]int, numColumn)
-	for _, row := range out {
-		for i, s := range row {
-			n := utf8.RuneCountInString(s)
-			if max[i] < n {
-				max[i] = n
+	for _, table := range tables {
+		for _, row := range table {
+			for i, s := range row {
+				n := utf8.RuneCountInString(s)
+				if max[i] < n {
+					max[i] = n
+				}
 			}
 		}
 	}
 
 	var buf bytes.Buffer
-	// headings
-	row := out[0]
-	for i, s := range row {
-		switch i {
-		case 0:
-			fmt.Fprintf(&buf, "%-*s", max[i], s)
-		default:
-			fmt.Fprintf(&buf, "  %-*s", max[i], s)
-		case len(row) - 1:
-			fmt.Fprintf(&buf, "  %s\n", s)
+	for i, table := range tables {
+		if i > 0 {
+			fmt.Fprintf(&buf, "\n")
 		}
-	}
 
-	// data
-	for _, row := range out[1:] {
+		if *flagHTML {
+			var buf bytes.Buffer
+			fmt.Fprintf(&buf, "<style>.benchstat tbody td:nth-child(1n+2) { text-align: right; padding: 0em 1em; }</style>\n")
+			fmt.Fprintf(&buf, "<table class='benchstat'>\n")
+			printRow := func(row []string, tag string) {
+				fmt.Fprintf(&buf, "<tr>")
+				for _, cell := range row {
+					fmt.Fprintf(&buf, "<%s>%s</%s>", tag, html.EscapeString(cell), tag)
+				}
+				fmt.Fprintf(&buf, "\n")
+			}
+			printRow(table[0], "th")
+			for _, row := range table[1:] {
+				printRow(row, "td")
+			}
+			fmt.Fprintf(&buf, "</table>\n")
+			continue
+		}
+
+		// headings
+		row := table[0]
 		for i, s := range row {
 			switch i {
 			case 0:
 				fmt.Fprintf(&buf, "%-*s", max[i], s)
 			default:
-				fmt.Fprintf(&buf, "  %*s", max[i], s)
+				fmt.Fprintf(&buf, "  %-*s", max[i], s)
+			case len(row) - 1:
+				fmt.Fprintf(&buf, "  %s\n", s)
 			}
 		}
-		fmt.Fprintf(&buf, "\n")
+
+		// data
+		for _, row := range table[1:] {
+			for i, s := range row {
+				switch i {
+				case 0:
+					fmt.Fprintf(&buf, "%-*s", max[i], s)
+				default:
+					fmt.Fprintf(&buf, "  %*s", max[i], s)
+				}
+			}
+			fmt.Fprintf(&buf, "\n")
+		}
 	}
 
 	os.Stdout.Write(buf.Bytes())
 }
 
-func (b *Benchmark) Scaler() func(*Benchmark) string {
+func (b *Benchstat) TimeScaler() func(*Benchstat) string {
 	var format string
 	var scale float64
 	switch x := b.Mean / 1e9; {
@@ -304,12 +353,72 @@ func (b *Benchmark) Scaler() func(*Benchmark) string {
 	default:
 		format, scale = "%.2fns", 1000*1000*1000
 	}
-	return func(b *Benchmark) string {
+	return func(b *Benchstat) string {
 		return fmt.Sprintf(format, b.Mean/1e9*scale)
 	}
 }
 
-func (b *Benchmark) Time(scaler func(*Benchmark) string) string {
+func (b *Benchstat) Scaler() func(*Benchstat) string {
+	if b.Name == "time/op" {
+		return b.TimeScaler()
+	}
+
+	var format string
+	var scale float64
+	var suffix string
+
+	prescale := 1.0
+	if b.Unit == "MB/s" {
+		prescale = 1e6
+	}
+
+	switch x := b.Mean * prescale; {
+	case x >= 99500000000000:
+		format, scale, suffix = "%.0f", 1e12, "T"
+	case x >= 9950000000000:
+		format, scale, suffix = "%.1f", 1e12, "T"
+	case x >= 995000000000:
+		format, scale, suffix = "%.2f", 1e12, "T"
+	case x >= 99500000000:
+		format, scale, suffix = "%.0f", 1e9, "G"
+	case x >= 9950000000:
+		format, scale, suffix = "%.1f", 1e9, "G"
+	case x >= 995000000:
+		format, scale, suffix = "%.2f", 1e9, "G"
+	case x >= 99500000:
+		format, scale, suffix = "%.0f", 1e6, "M"
+	case x >= 9950000:
+		format, scale, suffix = "%.1f", 1e6, "M"
+	case x >= 995000:
+		format, scale, suffix = "%.2f", 1e6, "M"
+	case x >= 99500:
+		format, scale, suffix = "%.0f", 1e3, "k"
+	case x >= 9950:
+		format, scale, suffix = "%.1f", 1e3, "k"
+	case x >= 995:
+		format, scale, suffix = "%.2f", 1e3, "k"
+	case x >= 99.5:
+		format, scale, suffix = "%.0f", 1, ""
+	case x >= 9.95:
+		format, scale, suffix = "%.1f", 1, ""
+	default:
+		format, scale, suffix = "%.2f", 1, ""
+	}
+
+	if b.Unit == "B/op" {
+		suffix += "B"
+	}
+	if b.Unit == "MB/s" {
+		suffix += "B/s"
+	}
+	scale /= prescale
+
+	return func(b *Benchstat) string {
+		return fmt.Sprintf(format+suffix, b.Mean/scale)
+	}
+}
+
+func (b *Benchstat) Format(scaler func(*Benchstat) string) string {
 	diff := 1 - b.Min/b.Mean
 	if d := b.Max/b.Mean - 1; d > diff {
 		diff = d
@@ -324,21 +433,86 @@ type Group struct {
 	ByName     map[string]*Benchmark
 }
 
+func (g *Group) Metrics() []string {
+	have := map[string]bool{}
+	var names []string
+	for _, b := range g.Benchmarks {
+		for _, r := range b.Runs {
+			for _, m := range r.M {
+				if !have[m.Name] {
+					have[m.Name] = true
+					names = append(names, m.Name)
+				}
+			}
+		}
+	}
+	return names
+}
+
 // A Benchmark is a collection of runs of a specific benchmark.
 type Benchmark struct {
-	Name   string
-	Runs   []Run
-	Times  []float64 // Times of runs in nanoseconds
-	RTimes []float64 // Times with outliers removed
-	Min    float64   // minimum run
-	Mean   float64
-	Max    float64 // maximum run
+	Name string
+	Runs []Run
+}
+
+func (b *Benchmark) Metric(name string) *Benchstat {
+	if b == nil {
+		return nil
+	}
+	stat := &Benchstat{
+		Name: name,
+	}
+	for _, r := range b.Runs {
+		for _, m := range r.M {
+			if m.Name == name {
+				stat.Unit = m.Unit
+				stat.Values = append(stat.Values, m.Val)
+			}
+		}
+	}
+	if stat.Values == nil {
+		return nil
+	}
+
+	// Discard outliers.
+	values := stats.Sample{Xs: stat.Values}
+	q1, q3 := values.Percentile(0.25), values.Percentile(0.75)
+	lo, hi := q1-1.5*(q3-q1), q3+1.5*(q3-q1)
+	for _, value := range stat.Values {
+		if lo <= value && value <= hi {
+			stat.RValues = append(stat.RValues, value)
+		}
+	}
+
+	// Compute statistics of remaining data.
+	stat.Min, stat.Max = stats.Bounds(stat.RValues)
+	stat.Mean = stats.Mean(stat.RValues)
+
+	return stat
+}
+
+// A Benchstat is the metrics along one axis (e.g., ns/op or MB/s)
+// for all runs of a specific benchmark.
+type Benchstat struct {
+	Name    string
+	Unit    string
+	Values  []float64 // metrics
+	RValues []float64 // metrics with outliers removed
+	Min     float64   // min of RValues
+	Mean    float64   // mean of RValues
+	Max     float64   // max of RValues
 }
 
 // A Run records the result of a single benchmark run.
 type Run struct {
-	N  int
-	Ns float64
+	N int
+	M []Metric
+}
+
+type Metric struct {
+	Name string
+	Unit string
+	Val  float64
 }
 
 // readFile reads a benchmark group from a file.
@@ -360,14 +534,28 @@ func readFile(file string) *Group {
 		}
 		name = strings.TrimPrefix(name, "Benchmark")
 		n, _ := strconv.Atoi(f[1])
-		var ns float64
-		for i := 2; i+2 <= len(f); i += 2 {
-			if f[i+1] == "ns/op" {
-				ns, _ = strconv.ParseFloat(f[i], 64)
-				break
-			}
+		if n == 0 {
+			continue
 		}
-		if n == 0 || ns == 0 {
+		r := Run{N: n}
+		for i := 2; i+2 <= len(f); i += 2 {
+			val, err := strconv.ParseFloat(f[i], 64)
+			if err != nil {
+				continue
+			}
+			unit := f[i+1]
+			name := unit
+			switch unit {
+			case "ns/op":
+				name = "time/op"
+			case "B/op":
+				name = "alloc/op"
+			case "MB/s":
+				name = "speed"
+			}
+			r.M = append(r.M, Metric{Name: name, Unit: unit, Val: val})
+		}
+		if len(r.M) == 0 {
 			continue
 		}
 		b := g.ByName[name]
@@ -376,24 +564,7 @@ func readFile(file string) *Group {
 			g.ByName[name] = b
 			g.Benchmarks = append(g.Benchmarks, b)
 		}
-		b.Runs = append(b.Runs, Run{n, ns})
-		b.Times = append(b.Times, ns)
-	}
-
-	for _, b := range g.Benchmarks {
-		// Discard outliers.
-		times := stats.Sample{Xs: b.Times}
-		q1, q3 := times.Percentile(0.25), times.Percentile(0.75)
-		lo, hi := q1-1.5*(q3-q1), q3+1.5*(q3-q1)
-		for _, time := range b.Times {
-			if lo <= time && time <= hi {
-				b.RTimes = append(b.RTimes, time)
-			}
-		}
-
-		// Compute statistics of remaining data.
-		b.Min, b.Max = stats.Bounds(b.RTimes)
-		b.Mean = stats.Mean(b.RTimes)
+		b.Runs = append(b.Runs, r)
 	}
 
 	return g
@@ -401,20 +572,20 @@ func readFile(file string) *Group {
 
 // Significance tests.
 
-func notest(old, new *Benchmark) (pval float64, err error) {
+func notest(old, new *Benchstat) (pval float64, err error) {
 	return -1, nil
 }
 
-func ttest(old, new *Benchmark) (pval float64, err error) {
-	t, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
+func ttest(old, new *Benchstat) (pval float64, err error) {
+	t, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RValues}, stats.Sample{Xs: new.RValues}, stats.LocationDiffers)
 	if err != nil {
 		return -1, err
 	}
 	return t.P, nil
 }
 
-func utest(old, new *Benchmark) (pval float64, err error) {
-	u, err := stats.MannWhitneyUTest(old.RTimes, new.RTimes, stats.LocationDiffers)
+func utest(old, new *Benchstat) (pval float64, err error) {
+	u, err := stats.MannWhitneyUTest(old.RValues, new.RValues, stats.LocationDiffers)
 	if err != nil {
 		return -1, err
 	}
