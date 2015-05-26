@@ -6,7 +6,7 @@
 //
 // Usage:
 //
-//	benchstat old.txt [new.txt] [more.txt ...]
+//	benchstat [-delta-test name] [-html] old.txt [new.txt] [more.txt ...]
 //
 // Each input file should contain the concatenated output of a number
 // of runs of ``go test -bench.'' For each different benchmark listed in an input file,
@@ -20,16 +20,22 @@
 // showing the statistics from the second file and a column showing the
 // percent change in mean from the first to the second file.
 // Next to the percent change, benchstat shows the p-value and sample
-// sizes from a Mann-Whitney U-test (also known as the Wilcoxon rank
-// sum test) of the two distributions of benchmark times. Small p-values
-// indicate that the two distributions are significantly different.
-// If the U-test indicates that there was no significant change between
-// the two distributions (defined as p > 0.05), benchstat replaces
-// the percent change with a single ~.
+// sizes from a test of the two distributions of benchmark times.
+// Small p-values indicate that the two distributions are significantly different.
+// If the test indicates that there was no significant change between the two
+// benchmarks (defined as p > 0.05), benchstat displays a single ~ instead of
+// the percent change.
+//
+// The -delta-test option controls which significance test is applied:
+// utest (Mann-Whitney U-test), ttest (two-sample Welch t-test), or none.
+// The default is the U-test, sometimes also referred to as the Wilcoxon rank
+// sum test.
 //
 // If invoked on more than two input files, benchstat prints the per-benchmark
 // statistics for all the files, showing one column of statistics for each file,
 // with no column for percent change or statistical significance.
+//
+// The -html option causes benchstat to print the results as an HTML table.
 //
 // Example
 //
@@ -66,21 +72,21 @@
 // If run with just one input file, benchstat summarizes that file:
 //
 //	$ benchstat old.txt
-//	name        mean
-//	GobEncode   13.6ms × (1.00,1.01)
-//	JSONEncode  32.1ms × (0.99,1.01)
+//	name        time/op
+//	GobEncode   13.6ms ± 1%
+//	JSONEncode  32.1ms ± 1%
 //	$
 //
 // If run with two input files, benchstat summarizes and compares:
 //
 //	$ benchstat old.txt new.txt
-//	name        old mean              new mean              delta
-//	GobEncode   13.6ms × (1.00,1.01)  11.8ms × (0.99,1.01)  -13.31% (p=0.016 n=4+5)
-//	JSONEncode  32.1ms × (0.99,1.01)  31.8ms × (0.99,1.01)     ~    (p=0.286 n=4+5)
+//	name        old time/op  new time/op  delta
+//	GobEncode   13.6ms ± 1%  11.8ms ± 1%  -13.31% (p=0.016 n=4+5)
+//	JSONEncode  32.1ms ± 1%  31.8ms ± 1%     ~    (p=0.286 n=4+5)
 //	$
 //
 // Note that the JSONEncode result is reported as
-// statistically insignificant instead of a -1% delta.
+// statistically insignificant instead of a -0.93% delta.
 //
 package main
 
@@ -88,6 +94,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"log"
 	"os"
@@ -99,38 +106,34 @@ import (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: benchstat [flags] old.txt [new.txt] [more.txt ...]\n")
+	fmt.Fprintf(os.Stderr, "usage: benchstat [options] old.txt [new.txt] [more.txt ...]\n")
+	fmt.Fprintf(os.Stderr, "options:\n")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
 
-type deltaTest int
-
-const (
-	deltaTestNone deltaTest = iota
-	deltaTestUTest
-	deltaTestTTest
+var (
+	flagDeltaTest = flag.String("delta-test", "utest", "significance `test` to apply to delta: utest, ttest, or none")
+	flagHTML      = flag.Bool("html", false, "print results as an HTML table")
 )
 
-var deltaTestNames = map[string]deltaTest{
-	"none":   deltaTestNone,
-	"utest":  deltaTestUTest,
-	"u-test": deltaTestUTest,
-	"u":      deltaTestUTest,
-	"ttest":  deltaTestTTest,
-	"t-test": deltaTestTTest,
-	"t":      deltaTestTTest,
+var deltaTestNames = map[string]func(old, new *Benchmark) (float64, error){
+	"none":   notest,
+	"u":      utest,
+	"u-test": utest,
+	"utest":  utest,
+	"t":      ttest,
+	"t-test": ttest,
+	"ttest":  ttest,
 }
 
 func main() {
-	var flagTest = flag.String("delta-test", "utest", "Use `test` to determine significance of deltas. test must be one of:\n\t  none:  perform no significance test\n\t  utest: perform a Mann-Whitney U-test\n\t  ttest: perform a Welch's t-test\n\t")
-
 	log.SetPrefix("benchstats: ")
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
-	deltaTest, deltaTestOK := deltaTestNames[strings.ToLower(*flagTest)]
-	if flag.NArg() < 1 || !deltaTestOK {
+	deltaTest := deltaTestNames[strings.ToLower(*flagDeltaTest)]
+	if flag.NArg() < 1 || deltaTest == nil {
 		flag.Usage()
 	}
 
@@ -138,42 +141,20 @@ func main() {
 	var out [][]string
 	switch flag.NArg() {
 	case 1:
-		out = append(out, []string{"name", "mean"})
+		out = append(out, []string{"name", "time/op"})
 		for _, old := range before.Benchmarks {
 			out = append(out, []string{old.Name, old.Time(old.Scaler())})
 		}
 	case 2:
 		after := readFile(flag.Arg(1))
-		out = append(out, []string{"name", "old mean", "new mean", "delta"})
+		out = append(out, []string{"name", "old time/op", "new time/op", "delta"})
 		for _, old := range before.Benchmarks {
 			new := after.ByName[old.Name]
 			if new == nil {
 				continue
 			}
 
-			var pval float64
-			var testerr error
-
-			switch deltaTest {
-			case deltaTestNone:
-				pval = -1
-
-			case deltaTestTTest:
-				ttest, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
-				if err == nil {
-					pval = ttest.P
-				} else {
-					testerr = err
-				}
-
-			case deltaTestUTest:
-				utest, err := stats.MannWhitneyUTest(old.RTimes, new.RTimes, stats.LocationDiffers)
-				if err == nil {
-					pval = utest.P
-				} else {
-					testerr = err
-				}
-			}
+			pval, testerr := deltaTest(old, new)
 
 			scaler := old.Scaler()
 			row := []string{old.Name, old.Time(scaler), new.Time(scaler), "~   "}
@@ -234,6 +215,26 @@ func main() {
 		}
 	}
 
+	if *flagHTML {
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "<style>.benchstat tbody td:nth-child(1n+2) { text-align: right; padding: 0em 1em; }</style>\n")
+		fmt.Fprintf(&buf, "<table class='benchstat'>\n")
+		printRow := func(row []string, tag string) {
+			fmt.Fprintf(&buf, "<tr>")
+			for _, cell := range row {
+				fmt.Fprintf(&buf, "<%s>%s</%s>", tag, html.EscapeString(cell), tag)
+			}
+			fmt.Fprintf(&buf, "\n")
+		}
+		printRow(out[0], "th")
+		for _, row := range out[1:] {
+			printRow(row, "td")
+		}
+		fmt.Fprintf(&buf, "</table>\n")
+		os.Stdout.Write(buf.Bytes())
+		return
+	}
+
 	max := make([]int, numColumn)
 	for _, row := range out {
 		for i, s := range row {
@@ -245,7 +246,6 @@ func main() {
 	}
 
 	var buf bytes.Buffer
-
 	// headings
 	row := out[0]
 	for i, s := range row {
@@ -310,7 +310,11 @@ func (b *Benchmark) Scaler() func(*Benchmark) string {
 }
 
 func (b *Benchmark) Time(scaler func(*Benchmark) string) string {
-	return fmt.Sprintf("%s × (%.2f,%.2f)", scaler(b), b.Min/b.Mean, b.Max/b.Mean)
+	diff := 1 - b.Min/b.Mean
+	if d := b.Max/b.Mean - 1; d > diff {
+		diff = d
+	}
+	return fmt.Sprintf("%s ±%3s", scaler(b), fmt.Sprintf("%.0f%%", diff*100.0))
 }
 
 // A Group is a collection of benchmark results for a specific version of the code.
@@ -393,4 +397,26 @@ func readFile(file string) *Group {
 	}
 
 	return g
+}
+
+// Significance tests.
+
+func notest(old, new *Benchmark) (pval float64, err error) {
+	return -1, nil
+}
+
+func ttest(old, new *Benchmark) (pval float64, err error) {
+	t, err := stats.TwoSampleWelchTTest(stats.Sample{Xs: old.RTimes}, stats.Sample{Xs: new.RTimes}, stats.LocationDiffers)
+	if err != nil {
+		return -1, err
+	}
+	return t.P, nil
+}
+
+func utest(old, new *Benchmark) (pval float64, err error) {
+	u, err := stats.MannWhitneyUTest(old.RTimes, new.RTimes, stats.LocationDiffers)
+	if err != nil {
+		return -1, err
+	}
+	return u.P, nil
 }
