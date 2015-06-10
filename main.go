@@ -127,6 +127,24 @@ var deltaTestNames = map[string]func(old, new *Benchstat) (float64, error){
 	"ttest":  ttest,
 }
 
+type row struct {
+	cols []string
+}
+
+func newRow(cols ...string) *row {
+	return &row{cols: cols}
+}
+
+func (r *row) add(col string) {
+	r.cols = append(r.cols, col)
+}
+
+func (r *row) trim() {
+	for len(r.cols) > 0 && r.cols[len(r.cols)-1] == "" {
+		r.cols = r.cols[:len(r.cols)-1]
+	}
+}
+
 func main() {
 	log.SetPrefix("benchstats: ")
 	log.SetFlags(0)
@@ -138,18 +156,18 @@ func main() {
 	}
 
 	before := readFile(flag.Arg(0))
-	var tables [][][]string
+	var tables [][]*row
 	switch flag.NArg() {
 	case 1:
 		for _, metric := range before.Metrics() {
-			var table [][]string
-			table = append(table, []string{"name", metric})
+			var table []*row
+			table = append(table, newRow("name", metric))
 			for _, b := range before.Benchmarks {
 				stat := b.Metric(metric)
 				if stat == nil {
 					continue
 				}
-				table = append(table, []string{b.Name, stat.Format(stat.Scaler())})
+				table = append(table, newRow(b.Name, stat.Format(stat.Scaler())))
 			}
 			tables = append(tables, table)
 		}
@@ -157,7 +175,7 @@ func main() {
 	case 2:
 		after := readFile(flag.Arg(1))
 		for _, metric := range before.Metrics() {
-			var table [][]string
+			var table []*row
 			for _, oldBench := range before.Benchmarks {
 				newBench := after.ByName[oldBench.Name]
 				if newBench == nil {
@@ -169,24 +187,24 @@ func main() {
 					continue
 				}
 				if len(table) == 0 {
-					table = append(table, []string{"name", "old " + metric, "new " + metric, "delta"})
+					table = append(table, newRow("name", "old "+metric, "new "+metric, "delta"))
 				}
 
 				pval, testerr := deltaTest(old, new)
 
 				scaler := old.Scaler()
-				row := []string{oldBench.Name, old.Format(scaler), new.Format(scaler), "~   "}
+				row := newRow(oldBench.Name, old.Format(scaler), new.Format(scaler), "~   ")
 				if testerr == stats.ErrZeroVariance {
-					row = append(row, "zero variance")
+					row.add("zero variance")
 				} else if testerr == stats.ErrSampleSize {
-					row = append(row, "too few samples")
+					row.add("too few samples")
 				} else if testerr != nil {
-					row = append(row, fmt.Sprintf("(%s)", testerr))
+					row.add(fmt.Sprintf("(%s)", testerr))
 				} else if pval <= 0.05 {
-					row[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
+					row.cols[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
 				}
-				if len(row) == 4 && pval != -1 {
-					row = append(row, fmt.Sprintf("(p=%0.3f n=%d+%d)", pval, len(old.RValues), len(new.RValues)))
+				if len(row.cols) == 4 && pval != -1 {
+					row.add(fmt.Sprintf("(p=%0.3f n=%d+%d)", pval, len(old.RValues), len(new.RValues)))
 				}
 				table = append(table, row)
 			}
@@ -212,10 +230,10 @@ func main() {
 				}
 				done["metric:"+metric] = true
 
-				var table [][]string
+				var table []*row
 				thdr := append([]string{}, hdr...)
 				thdr[0] += metric
-				table = append(table, thdr)
+				table = append(table, &row{cols: thdr})
 
 				for _, bench := range group.Benchmarks {
 					name := bench.Name
@@ -224,22 +242,20 @@ func main() {
 					}
 					done["bench:"+metric+"/"+name] = true
 
-					row := []string{name}
+					row := newRow(name)
 					var scaler func(*Benchstat) string
 					for _, group := range groups {
 						stat := group.ByName[name].Metric(metric)
 						if stat == nil {
-							row = append(row, "")
+							row.add("")
 							continue
 						}
 						if scaler == nil {
 							scaler = stat.Scaler()
 						}
-						row = append(row, stat.Format(scaler))
+						row.add(stat.Format(scaler))
 					}
-					for row[len(row)-1] == "" {
-						row = row[:len(row)-1]
-					}
+					row.trim()
 					table = append(table, row)
 				}
 
@@ -251,8 +267,8 @@ func main() {
 	numColumn := 0
 	for _, table := range tables {
 		for _, row := range table {
-			if numColumn < len(row) {
-				numColumn = len(row)
+			if numColumn < len(row.cols) {
+				numColumn = len(row.cols)
 			}
 		}
 	}
@@ -260,7 +276,7 @@ func main() {
 	max := make([]int, numColumn)
 	for _, table := range tables {
 		for _, row := range table {
-			for i, s := range row {
+			for i, s := range row.cols {
 				n := utf8.RuneCountInString(s)
 				if max[i] < n {
 					max[i] = n
@@ -279,9 +295,9 @@ func main() {
 			var buf bytes.Buffer
 			fmt.Fprintf(&buf, "<style>.benchstat tbody td:nth-child(1n+2) { text-align: right; padding: 0em 1em; }</style>\n")
 			fmt.Fprintf(&buf, "<table class='benchstat'>\n")
-			printRow := func(row []string, tag string) {
+			printRow := func(row *row, tag string) {
 				fmt.Fprintf(&buf, "<tr>")
-				for _, cell := range row {
+				for _, cell := range row.cols {
 					fmt.Fprintf(&buf, "<%s>%s</%s>", tag, html.EscapeString(cell), tag)
 				}
 				fmt.Fprintf(&buf, "\n")
@@ -296,20 +312,20 @@ func main() {
 
 		// headings
 		row := table[0]
-		for i, s := range row {
+		for i, s := range row.cols {
 			switch i {
 			case 0:
 				fmt.Fprintf(&buf, "%-*s", max[i], s)
 			default:
 				fmt.Fprintf(&buf, "  %-*s", max[i], s)
-			case len(row) - 1:
+			case len(row.cols) - 1:
 				fmt.Fprintf(&buf, "  %s\n", s)
 			}
 		}
 
 		// data
 		for _, row := range table[1:] {
-			for i, s := range row {
+			for i, s := range row.cols {
 				switch i {
 				case 0:
 					fmt.Fprintf(&buf, "%-*s", max[i], s)
