@@ -2,9 +2,30 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package stats
+package vec
 
 import "math"
+
+// Vectorize returns a function g(xs) that applies f to each x in xs.
+//
+// f may be evaluated in parallel and in any order.
+func Vectorize(f func(float64) float64) func(xs []float64) []float64 {
+	return func(xs []float64) []float64 {
+		return Map(f, xs)
+	}
+}
+
+// Map returns f(x) for each x in xs.
+//
+// f may be evaluated in parallel and in any order.
+func Map(f func(float64) float64, xs []float64) []float64 {
+	// TODO(austin) Parallelize
+	res := make([]float64, len(xs))
+	for i, x := range xs {
+		res[i] = f(x)
+	}
+	return res
+}
 
 // Linspace returns num values spaced evenly between lo and hi,
 // inclusive.
@@ -26,11 +47,11 @@ func Logspace(lo, hi float64, num int, base float64) []float64 {
 	return res
 }
 
-// Floors returns the floor of each element in xs.
-func Floors(xs []float64) []int {
-	res := make([]int, len(xs))
-	for i, x := range xs {
-		res[i] = int(x)
+// Sum returns the sum of xs.
+func Sum(xs []float64) float64 {
+	sum := 0.0
+	for _, x := range xs {
+		sum += x
 	}
-	return res
+	return sum
 }

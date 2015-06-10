@@ -7,6 +7,8 @@ package stats
 import (
 	"math"
 	"sort"
+
+	"rsc.io/benchstat/internal/go-moremath/mathx"
 )
 
 // A LocationHypothesis specifies the alternative hypothesis of a
@@ -88,9 +90,9 @@ var MannWhitneyExactLimit = 50
 //
 // Computing this distribution is more expensive than computing the
 // distribution without ties, so this is set lower. Computing this
-// distribution for two 20 value samples takes about ten milliseconds
+// distribution for two 25 value samples takes about ten milliseconds
 // on a 2014 laptop.
-var MannWhitneyTiesExactLimit = 20
+var MannWhitneyTiesExactLimit = 25
 
 // MannWhitneyUTest performs a Mann-Whitney U-test [1,2] of the null
 // hypothesis that two samples come from the same population against
@@ -209,7 +211,7 @@ func MannWhitneyUTest(x1, x2 []float64, alt LocationHypothesis) (*MannWhitneyUTe
 		// Perform continuity correction.
 		switch alt {
 		case LocationDiffers:
-			numer -= sign(numer) * 0.5
+			numer -= mathx.Sign(numer) * 0.5
 		case LocationLess:
 			numer += 0.5
 		case LocationGreater:

@@ -8,21 +8,9 @@ package stats
 
 import (
 	"fmt"
-	"math"
-)
 
-// sign returns the sign of x: -1 if x < 0, 0 if x == 0, 1 if x > 0.
-// If x is NaN, it returns NaN.
-func sign(x float64) float64 {
-	if x == 0 {
-		return 0
-	} else if x < 0 {
-		return -1
-	} else if x > 0 {
-		return 1
-	}
-	return nan
-}
+	"rsc.io/benchstat/internal/go-moremath/mathx"
+)
 
 func maxint(a, b int) int {
 	if a > b {
@@ -46,29 +34,6 @@ func sumint(xs []int) int {
 	return sum
 }
 
-// lchoose returns math.Log(choose(n, k)).
-func lchoose(n, k int) float64 {
-	a, _ := math.Lgamma(float64(n + 1))
-	b, _ := math.Lgamma(float64(k + 1))
-	c, _ := math.Lgamma(float64(n - k + 1))
-	return a - b - c
-}
-
-// choose returns the binomial coefficient of n and k.
-func choose(n, k int) int {
-	return int(math.Exp(lchoose(n, k)) + 0.5)
-}
-
-// atEach returns f(x) for each x in xs.
-func atEach(f func(float64) float64, xs []float64) []float64 {
-	// TODO(austin) Parallelize
-	res := make([]float64, len(xs))
-	for i, x := range xs {
-		res[i] = f(x)
-	}
-	return res
-}
-
 // bisect returns an x in [low, high] such that |f(x)| <= tolerance
 // using the bisection method.
 //
@@ -85,7 +50,7 @@ func bisect(f func(float64) float64, low, high, tolerance float64) (float64, boo
 	if -tolerance <= fhigh && fhigh <= tolerance {
 		return high, true
 	}
-	if sign(flow) == sign(fhigh) {
+	if mathx.Sign(flow) == mathx.Sign(fhigh) {
 		panic(fmt.Sprintf("root of f is not bracketed by [low, high]; f(%g)=%g f(%g)=%g", low, flow, high, fhigh))
 	}
 	for {
@@ -97,7 +62,36 @@ func bisect(f func(float64) float64, low, high, tolerance float64) (float64, boo
 		if mid == high || mid == low {
 			return mid, false
 		}
-		if sign(fmid) == sign(flow) {
+		if mathx.Sign(fmid) == mathx.Sign(flow) {
+			low = mid
+			flow = fmid
+		} else {
+			high = mid
+			fhigh = fmid
+		}
+	}
+}
+
+// bisectBool implements the bisection method on a boolean function.
+// It returns x1, x2 ∈ [low, high], x1 < x2 such that f(x1) != f(x2)
+// and x2 - x1 <= xtol.
+//
+// If f(low) == f(high), it panics.
+func bisectBool(f func(float64) bool, low, high, xtol float64) (x1, x2 float64) {
+	flow, fhigh := f(low), f(high)
+	if flow == fhigh {
+		panic(fmt.Sprintf("root of f is not bracketed by [low, high]; f(%g)=%v f(%g)=%v", low, flow, high, fhigh))
+	}
+	for {
+		if high-low <= xtol {
+			return low, high
+		}
+		mid := (high + low) / 2
+		if mid == high || mid == low {
+			return low, high
+		}
+		fmid := f(mid)
+		if fmid == flow {
 			low = mid
 			flow = fmid
 		} else {

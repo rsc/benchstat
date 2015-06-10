@@ -2,32 +2,29 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package stats
+package mathx
 
 import "math"
-
-// A TDist is a Student's t-distribution with V degrees of freedom.
-type TDist struct {
-	V float64
-}
 
 func lgamma(x float64) float64 {
 	y, _ := math.Lgamma(x)
 	return y
 }
 
-// beta returns the value of the complete beta function B(a, b).
-func beta(a, b float64) float64 {
+// Beta returns the value of the complete beta function B(a, b).
+func Beta(a, b float64) float64 {
 	// B(x,y) = Γ(x)Γ(y) / Γ(x+y)
 	return math.Exp(lgamma(a) + lgamma(b) - lgamma(a+b))
 }
 
-// betainc returns the value of the regularized incomplete beta
+// BetaInc returns the value of the regularized incomplete beta
 // function Iₓ(a, b).
 //
-// Note that the "incomplete beta function" can be computed as
-// betainc(x, a, b)*beta(a, b).
-func betainc(x, a, b float64) float64 {
+// This is not to be confused with the "incomplete beta function",
+// which can be computed as BetaInc(x, a, b)*Beta(a, b).
+//
+// If x < 0 or x > 1, returns NaN.
+func BetaInc(x, a, b float64) float64 {
 	// Based on Numerical Recipes in C, section 6.4. This uses the
 	// continued fraction definition of I:
 	//
@@ -38,7 +35,7 @@ func betainc(x, a, b float64) float64 {
 	//  d_{2m+1} = -(a+m)(a+b+m)x/((a+2m)(a+2m+1))
 	//  d_{2m}   = m(b-m)x/((a+2m-1)(a+2m))
 	if x < 0 || x > 1 {
-		panic("betainc: x must be in [0, 1]")
+		return math.NaN()
 	}
 	bt := 0.0
 	if 0 < x && x < 1 {
@@ -93,39 +90,4 @@ func betacf(x, a, b float64) float64 {
 		}
 	}
 	panic("betainc: a or b too big; failed to converge")
-}
-
-func (t TDist) PDF(x float64) float64 {
-	return math.Exp(lgamma((t.V+1)/2)-lgamma(t.V/2)) /
-		math.Sqrt(t.V*math.Pi) * math.Pow(1+(x*x)/t.V, -(t.V+1)/2)
-}
-
-func (t TDist) PDFEach(xs []float64) []float64 {
-	res := make([]float64, len(xs))
-	factor := math.Exp(lgamma((t.V+1)/2)-lgamma(t.V/2)) /
-		math.Sqrt(t.V*math.Pi)
-	for i, x := range xs {
-		res[i] = factor / math.Pow(1+(x*x)/t.V, (t.V+1)/2)
-	}
-	return res
-}
-
-func (t TDist) CDF(x float64) float64 {
-	if x == 0 {
-		return 0.5
-	} else if x > 0 {
-		return 1 - 0.5*betainc(t.V/(t.V+x*x), t.V/2, 0.5)
-	} else if x < 0 {
-		return 1 - t.CDF(-x)
-	} else {
-		return math.NaN()
-	}
-}
-
-func (t TDist) CDFEach(xs []float64) []float64 {
-	return atEach(t.CDF, xs)
-}
-
-func (t TDist) Bounds() (float64, float64) {
-	return -4, 4
 }

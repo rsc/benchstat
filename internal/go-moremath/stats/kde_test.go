@@ -4,12 +4,20 @@
 
 package stats
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
-func TestOneSample(t *testing.T) {
-	// Unweighted, fixed bandwidth
+func TestKDEOneSample(t *testing.T) {
 	x := float64(5)
-	kde := KDE{Bandwidth: FixedBandwidth(1)}.FromSample(Sample{Xs: []float64{x}})
+
+	// Unweighted, fixed bandwidth
+	kde := KDE{
+		Sample:    Sample{Xs: []float64{x}},
+		Kernel:    GaussianKernel,
+		Bandwidth: 1,
+	}
 	if e, g := StdNormal.PDF(0), kde.PDF(x); !aeq(e, g) {
 		t.Errorf("bad PDF value at sample: expected %g, got %g", e, g)
 	}
@@ -37,10 +45,34 @@ func TestOneSample(t *testing.T) {
 	if e, g := x+2, high; e > g {
 		t.Errorf("bad high bound: expected %g, got %g", e, g)
 	}
+
+	kde = KDE{
+		Sample:    Sample{Xs: []float64{x}},
+		Kernel:    EpanechnikovKernel,
+		Bandwidth: 2,
+	}
+	testFunc(t, fmt.Sprintf("%+v.PDF", kde), kde.PDF, map[float64]float64{
+		x - 2: 0,
+		x - 1: 0.5625 / 2,
+		x:     0.75 / 2,
+		x + 1: 0.5625 / 2,
+		x + 2: 0,
+	})
+	testFunc(t, fmt.Sprintf("%+v.CDF", kde), kde.CDF, map[float64]float64{
+		x - 2: 0,
+		x - 1: 0.15625,
+		x:     0.5,
+		x + 1: 0.84375,
+		x + 2: 1,
+	})
 }
 
-func TestTwoSamples(t *testing.T) {
-	kde := KDE{Bandwidth: FixedBandwidth(2)}.FromSample(Sample{Xs: []float64{1, 3}})
+func TestKDETwoSamples(t *testing.T) {
+	kde := KDE{
+		Sample:    Sample{Xs: []float64{1, 3}},
+		Kernel:    GaussianKernel,
+		Bandwidth: 2,
+	}
 	testFunc(t, "PDF", kde.PDF, map[float64]float64{
 		0: 0.120395730,
 		1: 0.160228251,

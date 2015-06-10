@@ -102,7 +102,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"rsc.io/benchstat/internal/stats"
+	"rsc.io/benchstat/internal/go-moremath/stats"
 )
 
 func usage() {

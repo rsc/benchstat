@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	"rsc.io/benchstat/internal/go-moremath/mathx"
 )
 
 func aeqTable(a, b [][]float64) bool {
@@ -279,7 +281,7 @@ enumu:
 		// ways of permuting the input sample under u.
 		prod := 1
 		for i, u_i := range u {
-			prod *= choose(t[i], u_i)
+			prod *= int(mathx.Choose(t[i], u_i) + 0.5)
 		}
 
 		// Accumulate the permutations on this u path.
@@ -299,7 +301,7 @@ enumu:
 	// Convert counts into probabilities for PMF and CDF.
 	pmf = make([]float64, len(counts))
 	cdf = make([]float64, len(counts))
-	total := choose(sumint(t), n1)
+	total := int(mathx.Choose(sumint(t), n1) + 0.5)
 	for i, count := range counts {
 		pmf[i] = float64(count) / float64(total)
 		if i > 0 {

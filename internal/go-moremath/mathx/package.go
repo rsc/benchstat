@@ -2,17 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// stats is a grab bag of statistical routines.
-package stats
+// Package mathx implements special functions not provided by the
+// standard math package.
+package mathx // import "rsc.io/benchstat/internal/go-moremath/mathx"
 
-import (
-	"errors"
-	"math"
-)
+import "math"
 
-var inf = math.Inf(1)
 var nan = math.NaN()
-
-var (
-	ErrSamplesEqual = errors.New("all samples are equal")
-)

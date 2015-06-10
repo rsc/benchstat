@@ -4,7 +4,11 @@
 
 package stats
 
-import "math"
+import (
+	"math"
+
+	"rsc.io/benchstat/internal/go-moremath/mathx"
+)
 
 // HypergeometicDist is a hypergeometric distribution.
 type HypergeometicDist struct {
@@ -33,7 +37,7 @@ func (d HypergeometicDist) PMF(k float64) float64 {
 }
 
 func (d HypergeometicDist) pmf(k int) float64 {
-	return math.Exp(lchoose(d.K, k) + lchoose(d.N-d.K, d.Draws-k) - lchoose(d.N, d.Draws))
+	return math.Exp(mathx.Lchoose(d.K, k) + mathx.Lchoose(d.N-d.K, d.Draws-k) - mathx.Lchoose(d.N, d.Draws))
 }
 
 // CDF is the probability of getting int(k) or fewer successes in

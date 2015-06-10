@@ -7,6 +7,8 @@ package stats
 import (
 	"math"
 	"sort"
+
+	"rsc.io/benchstat/internal/go-moremath/vec"
 )
 
 // Sample is a collection of possibly weighted data points.
@@ -89,19 +91,10 @@ func (s Sample) Bounds() (min float64, max float64) {
 	return
 }
 
-// Sum returns the sum of xs.
-func Sum(xs []float64) float64 {
-	sum := 0.0
-	for _, x := range xs {
-		sum += x
-	}
-	return sum
-}
-
 // Sum returns the (possibly weighted) sum of the Sample.
 func (s Sample) Sum() float64 {
 	if s.Weights == nil {
-		return Sum(s.Xs)
+		return vec.Sum(s.Xs)
 	}
 	sum := 0.0
 	for i, x := range s.Xs {
@@ -115,7 +108,7 @@ func (s Sample) Weight() float64 {
 	if s.Weights == nil {
 		return float64(len(s.Xs))
 	}
-	return Sum(s.Weights)
+	return vec.Sum(s.Weights)
 }
 
 // Mean returns the arithmetic mean of xs.
