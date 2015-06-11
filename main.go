@@ -292,7 +292,6 @@ func main() {
 		}
 
 		if *flagHTML {
-			var buf bytes.Buffer
 			fmt.Fprintf(&buf, "<style>.benchstat tbody td:nth-child(1n+2) { text-align: right; padding: 0em 1em; }</style>\n")
 			fmt.Fprintf(&buf, "<table class='benchstat'>\n")
 			printRow := func(row *row, tag string) {
