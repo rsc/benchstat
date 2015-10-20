@@ -247,7 +247,9 @@ func main() {
 					row.add(stat.Format(scaler))
 				}
 				row.trim()
-				table = append(table, row)
+				if len(row.cols) > 1 {
+					table = append(table, row)
+				}
 			}
 			tables = append(tables, table)
 		}
