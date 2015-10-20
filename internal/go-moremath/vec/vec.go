@@ -28,9 +28,13 @@ func Map(f func(float64) float64, xs []float64) []float64 {
 }
 
 // Linspace returns num values spaced evenly between lo and hi,
-// inclusive.
+// inclusive. If num is 1, this returns an array consisting of lo.
 func Linspace(lo, hi float64, num int) []float64 {
 	res := make([]float64, num)
+	if num == 1 {
+		res[0] = lo
+		return res
+	}
 	for i := 0; i < num; i++ {
 		res[i] = lo + float64(i)*(hi-lo)/float64(num-1)
 	}
@@ -54,4 +58,19 @@ func Sum(xs []float64) float64 {
 		sum += x
 	}
 	return sum
+}
+
+// Concat returns the concatenation of its arguments. It does not
+// modify its inputs.
+func Concat(xss ...[]float64) []float64 {
+	total := 0
+	for _, xs := range xss {
+		total += len(xs)
+	}
+	out := make([]float64, total)
+	pos := 0
+	for _, xs := range xss {
+		pos += copy(out[pos:], xs)
+	}
+	return out
 }

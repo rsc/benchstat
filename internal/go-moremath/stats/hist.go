@@ -6,6 +6,8 @@ package stats
 
 import "math"
 
+// TODO: Implement histograms on top of scales.
+
 type Histogram interface {
 	// Add adds a sample with value x to histogram h.
 	Add(x float64)

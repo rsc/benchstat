@@ -141,6 +141,39 @@ func (s Sample) Mean() float64 {
 	return m
 }
 
+// GeoMean returns the geometric mean of xs. xs must be positive.
+func GeoMean(xs []float64) float64 {
+	if len(xs) == 0 {
+		return math.NaN()
+	}
+	m := 0.0
+	for i, x := range xs {
+		if x <= 0 {
+			return math.NaN()
+		}
+		lx := math.Log(x)
+		m += (lx - m) / float64(i+1)
+	}
+	return math.Exp(m)
+}
+
+// GeoMean returns the geometric mean of the Sample. All samples
+// values must be positive.
+func (s Sample) GeoMean() float64 {
+	if len(s.Xs) == 0 || s.Weights == nil {
+		return GeoMean(s.Xs)
+	}
+
+	m, wsum := 0.0, 0.0
+	for i, x := range s.Xs {
+		w := s.Weights[i]
+		wsum += w
+		lx := math.Log(x)
+		m += (lx - m) * w / wsum
+	}
+	return math.Exp(m)
+}
+
 // Variance returns the sample variance of xs.
 func Variance(xs []float64) float64 {
 	if len(xs) == 0 {
