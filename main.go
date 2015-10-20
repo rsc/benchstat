@@ -183,7 +183,7 @@ func main() {
 
 				pval, testerr := deltaTest(old, new)
 
-				scaler := old.Scaler()
+				scaler := newScaler(old.Mean, old.Unit)
 				row := newRow(key.Benchmark, old.Format(scaler), new.Format(scaler), "~   ")
 				if testerr == stats.ErrZeroVariance {
 					row.add("zero variance")
@@ -222,7 +222,7 @@ func main() {
 
 			for _, key.Benchmark = range c.Benchmarks {
 				row := newRow(key.Benchmark)
-				var scaler func(*Benchstat) string
+				var scaler func(float64) string
 				for _, key.Config = range c.Configs {
 					stat := c.Stats[key]
 					if stat == nil {
@@ -230,7 +230,7 @@ func main() {
 						continue
 					}
 					if scaler == nil {
-						scaler = stat.Scaler()
+						scaler = newScaler(stat.Mean, stat.Unit)
 					}
 					row.add(stat.Format(scaler))
 				}
@@ -318,10 +318,10 @@ func main() {
 	os.Stdout.Write(buf.Bytes())
 }
 
-func (b *Benchstat) TimeScaler() func(*Benchstat) string {
+func timeScaler(ns float64) func(float64) string {
 	var format string
 	var scale float64
-	switch x := b.Mean / 1e9; {
+	switch x := ns / 1e9; {
 	case x >= 99.5:
 		format, scale = "%.0fs", 1
 	case x >= 9.95:
@@ -347,14 +347,14 @@ func (b *Benchstat) TimeScaler() func(*Benchstat) string {
 	default:
 		format, scale = "%.2fns", 1000*1000*1000
 	}
-	return func(b *Benchstat) string {
-		return fmt.Sprintf(format, b.Mean/1e9*scale)
+	return func(ns float64) string {
+		return fmt.Sprintf(format, ns/1e9*scale)
 	}
 }
 
-func (b *Benchstat) Scaler() func(*Benchstat) string {
-	if metricOf(b.Unit) == "time/op" {
-		return b.TimeScaler()
+func newScaler(val float64, unit string) func(float64) string {
+	if unit == "ns/op" {
+		return timeScaler(val)
 	}
 
 	var format string
@@ -362,11 +362,11 @@ func (b *Benchstat) Scaler() func(*Benchstat) string {
 	var suffix string
 
 	prescale := 1.0
-	if b.Unit == "MB/s" {
+	if unit == "MB/s" {
 		prescale = 1e6
 	}
 
-	switch x := b.Mean * prescale; {
+	switch x := val * prescale; {
 	case x >= 99500000000000:
 		format, scale, suffix = "%.0f", 1e12, "T"
 	case x >= 9950000000000:
@@ -399,25 +399,25 @@ func (b *Benchstat) Scaler() func(*Benchstat) string {
 		format, scale, suffix = "%.2f", 1, ""
 	}
 
-	if b.Unit == "B/op" {
+	if unit == "B/op" {
 		suffix += "B"
 	}
-	if b.Unit == "MB/s" {
+	if unit == "MB/s" {
 		suffix += "B/s"
 	}
 	scale /= prescale
 
-	return func(b *Benchstat) string {
-		return fmt.Sprintf(format+suffix, b.Mean/scale)
+	return func(val float64) string {
+		return fmt.Sprintf(format+suffix, val/scale)
 	}
 }
 
-func (b *Benchstat) Format(scaler func(*Benchstat) string) string {
+func (b *Benchstat) Format(scaler func(float64) string) string {
 	diff := 1 - b.Min/b.Mean
 	if d := b.Max/b.Mean - 1; d > diff {
 		diff = d
 	}
-	return fmt.Sprintf("%s ±%3s", scaler(b), fmt.Sprintf("%.0f%%", diff*100.0))
+	return fmt.Sprintf("%s ±%3s", scaler(b.Mean), fmt.Sprintf("%.0f%%", diff*100.0))
 }
 
 // ComputeStats updates the derived statistics in s from the raw
