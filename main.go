@@ -163,22 +163,6 @@ func main() {
 
 	var tables [][]*row
 	switch len(c.Configs) {
-	case 1:
-		key := BenchKey{Config: c.Configs[0]}
-		for _, key.Unit = range c.Units {
-			var table []*row
-			metric := metricOf(key.Unit)
-			table = append(table, newRow("name", metric))
-			for _, key.Benchmark = range c.Benchmarks {
-				stat := c.Stats[key]
-				if stat == nil {
-					continue
-				}
-				table = append(table, newRow(key.Benchmark, stat.Format(stat.Scaler())))
-			}
-			tables = append(tables, table)
-		}
-
 	case 2:
 		before, after := c.Configs[0], c.Configs[1]
 		key := BenchKey{}
@@ -226,11 +210,15 @@ func main() {
 			var table []*row
 			metric := metricOf(key.Unit)
 
-			hdr := newRow("name \\ " + metric)
-			for _, config := range c.Configs {
-				hdr.add(config)
+			if len(c.Configs) > 1 {
+				hdr := newRow("name \\ " + metric)
+				for _, config := range c.Configs {
+					hdr.add(config)
+				}
+				table = append(table, hdr)
+			} else {
+				table = append(table, newRow("name", metric))
 			}
-			table = append(table, hdr)
 
 			for _, key.Benchmark = range c.Benchmarks {
 				row := newRow(key.Benchmark)
