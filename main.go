@@ -201,7 +201,7 @@ func main() {
 				table = append(table, row)
 			}
 			if len(table) > 0 {
-				table = addGeomean(table, c, key.Unit)
+				table = addGeomean(table, c, key.Unit, true)
 				tables = append(tables, table)
 			}
 		}
@@ -241,7 +241,7 @@ func main() {
 					table = append(table, row)
 				}
 			}
-			table = addGeomean(table, c, key.Unit)
+			table = addGeomean(table, c, key.Unit, false)
 			tables = append(tables, table)
 		}
 	}
@@ -321,13 +321,14 @@ func main() {
 	os.Stdout.Write(buf.Bytes())
 }
 
-func addGeomean(table []*row, c *Collection, unit string) []*row {
+func addGeomean(table []*row, c *Collection, unit string, delta bool) []*row {
 	if !*flagGeomean {
 		return table
 	}
 
 	row := newRow("[Geo mean]")
 	key := BenchKey{Unit: unit}
+	geomeans := []float64{}
 	for _, key.Config = range c.Configs {
 		var means []float64
 		for _, key.Benchmark = range c.Benchmarks {
@@ -338,10 +339,15 @@ func addGeomean(table []*row, c *Collection, unit string) []*row {
 		}
 		if len(means) == 0 {
 			row.add("")
+			delta = false
 		} else {
 			geomean := stats.GeoMean(means)
+			geomeans = append(geomeans, geomean)
 			row.add(newScaler(geomean, unit)(geomean) + "     ")
 		}
+	}
+	if delta {
+		row.add(fmt.Sprintf("%+.2f%%", ((geomeans[1]/geomeans[0])-1.0)*100.0))
 	}
 	return append(table, row)
 }
