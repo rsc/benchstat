@@ -155,34 +155,41 @@ func main() {
 		flag.Usage()
 	}
 
-	before := readFile(flag.Arg(0))
+	// Read in benchmark data.
+	c := readFiles(flag.Args())
+	for _, stat := range c.Stats {
+		stat.ComputeStats()
+	}
+
 	var tables [][]*row
-	switch flag.NArg() {
+	switch len(c.Configs) {
 	case 1:
-		for _, metric := range before.Metrics() {
+		key := BenchKey{Config: c.Configs[0]}
+		for _, key.Unit = range c.Units {
 			var table []*row
+			metric := metricOf(key.Unit)
 			table = append(table, newRow("name", metric))
-			for _, b := range before.Benchmarks {
-				stat := b.Metric(metric)
+			for _, key.Benchmark = range c.Benchmarks {
+				stat := c.Stats[key]
 				if stat == nil {
 					continue
 				}
-				table = append(table, newRow(b.Name, stat.Format(stat.Scaler())))
+				table = append(table, newRow(key.Benchmark, stat.Format(stat.Scaler())))
 			}
 			tables = append(tables, table)
 		}
 
 	case 2:
-		after := readFile(flag.Arg(1))
-		for _, metric := range before.Metrics() {
+		before, after := c.Configs[0], c.Configs[1]
+		key := BenchKey{}
+		for _, key.Unit = range c.Units {
 			var table []*row
-			for _, oldBench := range before.Benchmarks {
-				newBench := after.ByName[oldBench.Name]
-				if newBench == nil {
-					continue
-				}
-				old := oldBench.Metric(metric)
-				new := newBench.Metric(metric)
+			metric := metricOf(key.Unit)
+			for _, key.Benchmark = range c.Benchmarks {
+				key.Config = before
+				old := c.Stats[key]
+				key.Config = after
+				new := c.Stats[key]
 				if old == nil || new == nil {
 					continue
 				}
@@ -193,7 +200,7 @@ func main() {
 				pval, testerr := deltaTest(old, new)
 
 				scaler := old.Scaler()
-				row := newRow(oldBench.Name, old.Format(scaler), new.Format(scaler), "~   ")
+				row := newRow(key.Benchmark, old.Format(scaler), new.Format(scaler), "~   ")
 				if testerr == stats.ErrZeroVariance {
 					row.add("zero variance")
 				} else if testerr == stats.ErrSampleSize {
@@ -214,53 +221,35 @@ func main() {
 		}
 
 	default:
-		groups := []*Group{before}
-		hdr := []string{"name \\ ", before.File}
-		for _, file := range flag.Args()[1:] {
-			group := readFile(file)
-			groups = append(groups, group)
-			hdr = append(hdr, group.File)
-		}
+		key := BenchKey{}
+		for _, key.Unit = range c.Units {
+			var table []*row
+			metric := metricOf(key.Unit)
 
-		done := map[string]bool{}
-		for _, group := range groups {
-			for _, metric := range group.Metrics() {
-				if done["metric:"+metric] {
-					continue
-				}
-				done["metric:"+metric] = true
+			hdr := newRow("name \\ " + metric)
+			for _, config := range c.Configs {
+				hdr.add(config)
+			}
+			table = append(table, hdr)
 
-				var table []*row
-				thdr := append([]string{}, hdr...)
-				thdr[0] += metric
-				table = append(table, &row{cols: thdr})
-
-				for _, bench := range group.Benchmarks {
-					name := bench.Name
-					if done["bench:"+metric+"/"+name] {
+			for _, key.Benchmark = range c.Benchmarks {
+				row := newRow(key.Benchmark)
+				var scaler func(*Benchstat) string
+				for _, key.Config = range c.Configs {
+					stat := c.Stats[key]
+					if stat == nil {
+						row.add("")
 						continue
 					}
-					done["bench:"+metric+"/"+name] = true
-
-					row := newRow(name)
-					var scaler func(*Benchstat) string
-					for _, group := range groups {
-						stat := group.ByName[name].Metric(metric)
-						if stat == nil {
-							row.add("")
-							continue
-						}
-						if scaler == nil {
-							scaler = stat.Scaler()
-						}
-						row.add(stat.Format(scaler))
+					if scaler == nil {
+						scaler = stat.Scaler()
 					}
-					row.trim()
-					table = append(table, row)
+					row.add(stat.Format(scaler))
 				}
-
-				tables = append(tables, table)
+				row.trim()
+				table = append(table, row)
 			}
+			tables = append(tables, table)
 		}
 	}
 
@@ -374,7 +363,7 @@ func (b *Benchstat) TimeScaler() func(*Benchstat) string {
 }
 
 func (b *Benchstat) Scaler() func(*Benchstat) string {
-	if b.Name == "time/op" {
+	if metricOf(b.Unit) == "time/op" {
 		return b.TimeScaler()
 	}
 
@@ -441,54 +430,9 @@ func (b *Benchstat) Format(scaler func(*Benchstat) string) string {
 	return fmt.Sprintf("%s ±%3s", scaler(b), fmt.Sprintf("%.0f%%", diff*100.0))
 }
 
-// A Group is a collection of benchmark results for a specific version of the code.
-type Group struct {
-	File       string
-	Benchmarks []*Benchmark
-	ByName     map[string]*Benchmark
-}
-
-func (g *Group) Metrics() []string {
-	have := map[string]bool{}
-	var names []string
-	for _, b := range g.Benchmarks {
-		for _, r := range b.Runs {
-			for _, m := range r.M {
-				if !have[m.Name] {
-					have[m.Name] = true
-					names = append(names, m.Name)
-				}
-			}
-		}
-	}
-	return names
-}
-
-// A Benchmark is a collection of runs of a specific benchmark.
-type Benchmark struct {
-	Name string
-	Runs []Run
-}
-
-func (b *Benchmark) Metric(name string) *Benchstat {
-	if b == nil {
-		return nil
-	}
-	stat := &Benchstat{
-		Name: name,
-	}
-	for _, r := range b.Runs {
-		for _, m := range r.M {
-			if m.Name == name {
-				stat.Unit = m.Unit
-				stat.Values = append(stat.Values, m.Val)
-			}
-		}
-	}
-	if stat.Values == nil {
-		return nil
-	}
-
+// ComputeStats updates the derived statistics in s from the raw
+// samples in s.Values.
+func (stat *Benchstat) ComputeStats() {
 	// Discard outliers.
 	values := stats.Sample{Xs: stat.Values}
 	q1, q3 := values.Percentile(0.25), values.Percentile(0.75)
@@ -502,14 +446,11 @@ func (b *Benchmark) Metric(name string) *Benchstat {
 	// Compute statistics of remaining data.
 	stat.Min, stat.Max = stats.Bounds(stat.RValues)
 	stat.Mean = stats.Mean(stat.RValues)
-
-	return stat
 }
 
 // A Benchstat is the metrics along one axis (e.g., ns/op or MB/s)
 // for all runs of a specific benchmark.
 type Benchstat struct {
-	Name    string
 	Unit    string
 	Values  []float64 // metrics
 	RValues []float64 // metrics with outliers removed
@@ -518,21 +459,56 @@ type Benchstat struct {
 	Max     float64   // max of RValues
 }
 
-// A Run records the result of a single benchmark run.
-type Run struct {
-	N int
-	M []Metric
+// A BenchKey identifies one metric (e.g., "ns/op", "B/op") from one
+// benchmark (function name sans "Benchmark" prefix) in one
+// configuration (input file name).
+type BenchKey struct {
+	Config, Benchmark, Unit string
 }
 
-type Metric struct {
-	Name string
-	Unit string
-	Val  float64
+type Collection struct {
+	Stats map[BenchKey]*Benchstat
+
+	// Configs, Benchmarks, and Units give the set of configs,
+	// benchmarks, and units from the keys in Stats in an order
+	// meant to match the order the benchmarks were read in.
+	Configs, Benchmarks, Units []string
 }
 
-// readFile reads a benchmark group from a file.
-func readFile(file string) *Group {
-	g := &Group{File: file, ByName: make(map[string]*Benchmark)}
+func (c *Collection) AddStat(key BenchKey) *Benchstat {
+	if stat, ok := c.Stats[key]; ok {
+		return stat
+	}
+
+	addString := func(strings *[]string, add string) {
+		for _, s := range *strings {
+			if s == add {
+				return
+			}
+		}
+		*strings = append(*strings, add)
+	}
+	addString(&c.Configs, key.Config)
+	addString(&c.Benchmarks, key.Benchmark)
+	addString(&c.Units, key.Unit)
+	stat := &Benchstat{Unit: key.Unit}
+	c.Stats[key] = stat
+	return stat
+}
+
+// readFiles reads a set of benchmark files.
+func readFiles(files []string) *Collection {
+	c := Collection{Stats: make(map[BenchKey]*Benchstat)}
+	for _, file := range files {
+		readFile(file, &c)
+	}
+	return &c
+}
+
+// readFile reads a set of benchmarks from a file in to a Collection.
+func readFile(file string, c *Collection) {
+	c.Configs = append(c.Configs, file)
+	key := BenchKey{Config: file}
 
 	text, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -552,37 +528,31 @@ func readFile(file string) *Group {
 		if n == 0 {
 			continue
 		}
-		r := Run{N: n}
+
+		key.Benchmark = name
 		for i := 2; i+2 <= len(f); i += 2 {
 			val, err := strconv.ParseFloat(f[i], 64)
 			if err != nil {
 				continue
 			}
-			unit := f[i+1]
-			name := unit
-			switch unit {
-			case "ns/op":
-				name = "time/op"
-			case "B/op":
-				name = "alloc/op"
-			case "MB/s":
-				name = "speed"
-			}
-			r.M = append(r.M, Metric{Name: name, Unit: unit, Val: val})
+			key.Unit = f[i+1]
+			stat := c.AddStat(key)
+			stat.Values = append(stat.Values, val)
 		}
-		if len(r.M) == 0 {
-			continue
-		}
-		b := g.ByName[name]
-		if b == nil {
-			b = &Benchmark{Name: name}
-			g.ByName[name] = b
-			g.Benchmarks = append(g.Benchmarks, b)
-		}
-		b.Runs = append(b.Runs, r)
 	}
+}
 
-	return g
+func metricOf(unit string) string {
+	switch unit {
+	case "ns/op":
+		return "time/op"
+	case "B/op":
+		return "alloc/op"
+	case "MB/s":
+		return "speed"
+	default:
+		return unit
+	}
 }
 
 // Significance tests.
