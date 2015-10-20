@@ -6,7 +6,7 @@
 //
 // Usage:
 //
-//	benchstat [-delta-test name] [-html] old.txt [new.txt] [more.txt ...]
+//	benchstat [-delta-test name] [-geomean] [-html] old.txt [new.txt] [more.txt ...]
 //
 // Each input file should contain the concatenated output of a number
 // of runs of ``go test -bench.'' For each different benchmark listed in an input file,
@@ -114,6 +114,7 @@ func usage() {
 
 var (
 	flagDeltaTest = flag.String("delta-test", "utest", "significance `test` to apply to delta: utest, ttest, or none")
+	flagGeomean   = flag.Bool("geomean", false, "print the geometric mean of each file")
 	flagHTML      = flag.Bool("html", false, "print results as an HTML table")
 )
 
@@ -200,6 +201,7 @@ func main() {
 				table = append(table, row)
 			}
 			if len(table) > 0 {
+				table = addGeomean(table, c, key.Unit)
 				tables = append(tables, table)
 			}
 		}
@@ -239,6 +241,7 @@ func main() {
 					table = append(table, row)
 				}
 			}
+			table = addGeomean(table, c, key.Unit)
 			tables = append(tables, table)
 		}
 	}
@@ -316,6 +319,31 @@ func main() {
 	}
 
 	os.Stdout.Write(buf.Bytes())
+}
+
+func addGeomean(table []*row, c *Collection, unit string) []*row {
+	if !*flagGeomean {
+		return table
+	}
+
+	row := newRow("[Geo mean]")
+	key := BenchKey{Unit: unit}
+	for _, key.Config = range c.Configs {
+		var means []float64
+		for _, key.Benchmark = range c.Benchmarks {
+			stat := c.Stats[key]
+			if stat != nil {
+				means = append(means, stat.Mean)
+			}
+		}
+		if len(means) == 0 {
+			row.add("")
+		} else {
+			geomean := stats.GeoMean(means)
+			row.add(newScaler(geomean, unit)(geomean) + "     ")
+		}
+	}
+	return append(table, row)
 }
 
 func timeScaler(ns float64) func(float64) string {
