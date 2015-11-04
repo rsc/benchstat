@@ -147,7 +147,7 @@ func (r *row) trim() {
 }
 
 func main() {
-	log.SetPrefix("benchstats: ")
+	log.SetPrefix("benchstat: ")
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
