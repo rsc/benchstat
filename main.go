@@ -114,6 +114,7 @@ func usage() {
 
 var (
 	flagDeltaTest = flag.String("delta-test", "utest", "significance `test` to apply to delta: utest, ttest, or none")
+	flagAlpha     = flag.Float64("alpha", 0.05, "consider change significant if p < `α`")
 	flagGeomean   = flag.Bool("geomean", false, "print the geometric mean of each file")
 	flagHTML      = flag.Bool("html", false, "print results as an HTML table")
 )
@@ -192,7 +193,7 @@ func main() {
 					row.add("too few samples")
 				} else if testerr != nil {
 					row.add(fmt.Sprintf("(%s)", testerr))
-				} else if pval <= 0.05 {
+				} else if pval < *flagAlpha {
 					row.cols[3] = fmt.Sprintf("%+.2f%%", ((new.Mean/old.Mean)-1.0)*100.0)
 				}
 				if len(row.cols) == 4 && pval != -1 {
