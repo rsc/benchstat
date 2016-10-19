@@ -188,9 +188,11 @@ func main() {
 				scaler := newScaler(old.Mean, old.Unit)
 				row := newRow(key.Benchmark, old.Format(scaler), new.Format(scaler), "~   ")
 				if testerr == stats.ErrZeroVariance {
-					row.add("zero variance")
+					row.add("(zero variance)")
 				} else if testerr == stats.ErrSampleSize {
-					row.add("too few samples")
+					row.add("(too few samples)")
+				} else if testerr == stats.ErrSamplesEqual {
+					row.add("(all equal)")
 				} else if testerr != nil {
 					row.add(fmt.Sprintf("(%s)", testerr))
 				} else if pval < *flagAlpha {
