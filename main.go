@@ -312,6 +312,11 @@ func main() {
 				case 0:
 					fmt.Fprintf(&buf, "%-*s", max[i], s)
 				default:
+					if i == len(row.cols)-1 && len(s) > 0 && s[0] == '(' {
+						// Left-align p value.
+						fmt.Fprintf(&buf, "  %s", s)
+						break
+					}
 					fmt.Fprintf(&buf, "  %*s", max[i], s)
 				}
 			}
