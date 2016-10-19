@@ -452,7 +452,13 @@ func (b *Benchstat) Format(scaler func(float64) string) string {
 	if d := b.Max/b.Mean - 1; d > diff {
 		diff = d
 	}
-	return fmt.Sprintf("%s ±%3s", scaler(b.Mean), fmt.Sprintf("%.0f%%", diff*100.0))
+	s := scaler(b.Mean)
+	if b.Mean == 0 {
+		s += "     "
+	} else {
+		s = fmt.Sprintf("%s ±%3s", s, fmt.Sprintf("%.0f%%", diff*100.0))
+	}
+	return s
 }
 
 // ComputeStats updates the derived statistics in s from the raw
